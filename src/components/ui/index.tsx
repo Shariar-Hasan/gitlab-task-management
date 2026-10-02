@@ -171,21 +171,26 @@ export const Tooltip = ({ children, content, side = 'top' }: TooltipProps) => {
   );
 };
 
-export const Select = React.forwardRef<HTMLSelectElement, React.SelectHTMLAttributes<HTMLSelectElement>>(
-  ({ className, children, ...props }, ref) => (
-    <select
-      ref={ref}
-      className={cn(
-        'flex h-9 w-full rounded-[10px] border border-[var(--border)] bg-[var(--surface)] px-3 py-1 text-sm text-[var(--text-1)]',
-        'focus:outline-none focus:border-[var(--accent)]/60 focus:ring-2 focus:ring-[var(--accent)]/15',
-        'hover:border-[var(--border-hover)] transition-colors duration-150 cursor-pointer disabled:opacity-40',
-        className
-      )}
-      {...props}
-    >
-      {children}
-    </select>
-  )
+export { PopoverSelect, type PopoverOption, type PopoverSelectProps } from './PopoverSelect';
+import { PopoverSelect, type PopoverOption } from './PopoverSelect';
+
+export interface SelectProps {
+  id?: string;
+  name?: string;
+  value?: any;
+  onChange?: (e: any) => void;
+  options?: PopoverOption[];
+  children?: React.ReactNode;
+  placeholder?: string;
+  disabled?: boolean;
+  className?: string;
+  popoverWidth?: number | string;
+  align?: 'left' | 'right';
+  icon?: any;
+}
+
+export const Select = React.forwardRef<HTMLButtonElement, SelectProps>(
+  (props, _ref) => <PopoverSelect {...props} />
 );
 Select.displayName = 'Select';
 

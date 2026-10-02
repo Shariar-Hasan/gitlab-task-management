@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { Plus, X, Tag, Check, Calendar, FolderGit2, CircleDot, User, Loader2, Users, FileText } from 'lucide-react';
 import { Modal, ModalHeader, ModalBody, ModalFooter } from './ui/overlay';
-import { Button, Input, Label, Select, Avatar } from './ui/index';
+import { Button, Input, Label, Select, Avatar, PopoverSelect } from './ui/index';
 import HtmlEditor, { normalizeToHtml } from './ui/HtmlEditor';
 import FilterSelect from './ui/FilterSelect';
 import { useToast } from './ui/overlay';
@@ -301,21 +301,22 @@ export default function TaskModal({ open, onClose, editIssue = null }: TaskModal
             </Label>
             {templates.length > 0 && (
               <div className="flex items-center gap-1.5">
-                <FileText className="h-3 w-3 text-[var(--accent)]" />
-                <span className="text-[10px] text-[var(--text-3)]">Template:</span>
-                <select
-                  onChange={(e) => {
-                    if (e.target.value) handleApplyTemplate(e.target.value);
-                    e.target.value = '';
+                <PopoverSelect
+                  value=""
+                  onChange={(val) => {
+                    const tplId = typeof val === 'object' && val?.target?.value !== undefined ? val.target.value : val;
+                    if (tplId) handleApplyTemplate(String(tplId));
                   }}
-                  defaultValue=""
-                  className="h-6 text-[10px] px-2 rounded border border-[var(--border)] bg-[var(--surface-2)] text-[var(--text-2)] hover:text-[var(--text-1)] focus:outline-none cursor-pointer"
-                >
-                  <option value="" disabled>Insert template...</option>
-                  {templates.map((tpl) => (
-                    <option key={tpl.id} value={tpl.id}>{tpl.name}</option>
-                  ))}
-                </select>
+                  placeholder="Insert template..."
+                  className="h-6 text-[10px] px-2 py-0.5 rounded-lg border border-[var(--border)] bg-[var(--surface-2)] text-[var(--text-2)] hover:text-[var(--text-1)] w-auto min-w-[140px]"
+                  popoverWidth={200}
+                  icon={FileText}
+                  options={templates.map((tpl) => ({
+                    value: tpl.id,
+                    label: tpl.name,
+                    icon: <FileText className="h-3 w-3 text-[var(--accent)]" />,
+                  }))}
+                />
               </div>
             )}
           </div>
@@ -361,18 +362,20 @@ export default function TaskModal({ open, onClose, editIssue = null }: TaskModal
             <Label htmlFor="task-status" className="flex items-center gap-1.5 font-semibold text-xs text-[var(--text-1)] mb-1.5">
               <CircleDot className="h-3.5 w-3.5 text-[var(--accent)]" /> Status
             </Label>
-            <Select
+            <PopoverSelect
               id="task-status"
               value={form.status}
-              onChange={(e) => setField('status', e.target.value)}
-              className="h-9 text-xs pl-3"
-            >
-              {availableStatuses.map((s) => (
-                <option key={s.id} value={s.id}>
-                  {s.label}
-                </option>
-              ))}
-            </Select>
+              onChange={(val) => {
+                const statusVal = typeof val === 'object' && val?.target?.value !== undefined ? val.target.value : val;
+                setField('status', String(statusVal));
+              }}
+              options={availableStatuses.map((s) => ({
+                value: s.id,
+                label: s.label,
+                color: s.color,
+              }))}
+              className="h-9 text-xs"
+            />
           </div>
 
           {/* 3. Assignees Selector (Multi-Selectable with Search) */}

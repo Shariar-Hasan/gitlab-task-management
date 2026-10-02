@@ -13,6 +13,7 @@ import { useToast, Modal } from './ui/overlay';
 import useStore from '../store/useStore';
 import { cn, formatTime, getVisibleGlobalLabels } from '../lib/utils';
 import { localStore, TASK_STATUSES } from '../lib/localStore';
+import HtmlEditor from './ui/HtmlEditor';
 
 // ── Connection Settings ────────────────────────────────────────────────────────
 function ConnectionSettings() {
@@ -1674,7 +1675,15 @@ function TemplatesSettings() {
             <button onClick={() => setShowAdd(false)} className="text-[var(--text-3)] hover:text-[var(--text-1)] cursor-pointer"><X className="h-4 w-4" /></button>
           </div>
           <Input value={newTemplate.name} onChange={(e) => setNewTemplate({ ...newTemplate, name: e.target.value })} placeholder="Template name..." className="h-8 text-xs" autoFocus />
-          <textarea value={newTemplate.content} onChange={(e) => setNewTemplate({ ...newTemplate, content: e.target.value })} placeholder="Markdown content..." rows={5} className="w-full rounded-[10px] border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-xs font-mono resize-none focus:outline-none focus:border-[var(--accent)]/60 placeholder:text-[var(--text-3)] text-[var(--text-1)]" />
+          <div>
+            <p className="text-[11px] font-medium text-[var(--text-3)] mb-1">Template Content (HTML Editor)</p>
+            <HtmlEditor
+              value={newTemplate.content}
+              onChange={(content) => setNewTemplate({ ...newTemplate, content })}
+              placeholder="Compose rich template content with headings, lists, tables, checklists..."
+              minHeight="150px"
+            />
+          </div>
           <div className="flex gap-2">
             <Button variant="ghost" size="sm" onClick={() => setShowAdd(false)} className="flex-1 text-xs">Cancel</Button>
             <Button size="sm" disabled={!newTemplate.name.trim()} onClick={handleCreate} className="flex-1 text-xs">Save</Button>
@@ -1689,7 +1698,15 @@ function TemplatesSettings() {
               {isEditing ? (
                 <div className="p-3 space-y-2">
                   <Input value={editForm.name} onChange={(e) => setEditForm({ ...editForm, name: e.target.value })} className="h-8 text-xs" autoFocus />
-                  <textarea value={editForm.content} onChange={(e) => setEditForm({ ...editForm, content: e.target.value })} rows={5} className="w-full rounded-[10px] border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-xs font-mono resize-none focus:outline-none text-[var(--text-1)]" />
+                  <div>
+                    <p className="text-[11px] font-medium text-[var(--text-3)] mb-1">Template Content (HTML Editor)</p>
+                    <HtmlEditor
+                      value={editForm.content}
+                      onChange={(content) => setEditForm({ ...editForm, content })}
+                      placeholder="Edit rich template content..."
+                      minHeight="150px"
+                    />
+                  </div>
                   <div className="flex justify-end gap-1.5">
                     <Button variant="ghost" size="sm" onClick={() => setEditingId(null)} className="h-7 text-xs">Cancel</Button>
                     <Button size="sm" onClick={() => handleSaveEdit(tpl.id)} className="h-7 text-xs"><Check className="h-3 w-3" /> Save</Button>
@@ -1700,7 +1717,9 @@ function TemplatesSettings() {
                   <FileText className="h-4 w-4 text-[var(--accent)] shrink-0 mt-0.5" />
                   <div className="flex-1 min-w-0">
                     <p className="text-xs font-semibold text-[var(--text-1)]">{tpl.name}</p>
-                    <p className="text-[10px] text-[var(--text-3)] mt-0.5 line-clamp-2 font-mono">{(tpl.content || '').slice(0, 100)}...</p>
+                    <p className="text-[10px] text-[var(--text-3)] mt-0.5 line-clamp-2">
+                      {(tpl.content || '').replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 120)}...
+                    </p>
                   </div>
                   <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                     <Button variant="ghost" size="icon-sm" onClick={() => { setEditingId(tpl.id); setEditForm({ name: tpl.name, content: tpl.content }); }}><Edit2 className="h-3.5 w-3.5 text-[var(--text-2)]" /></Button>
