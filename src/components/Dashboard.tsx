@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useMemo } from 'react';
+import React, { useEffect, useState, useMemo, useCallback } from 'react';
 import {
   GitBranch, Search, Plus, Filter, RefreshCw, Settings,
   AlertCircle, X, BarChart3, CheckCircle2, Clock, Circle,
@@ -73,11 +73,11 @@ export default function Dashboard({ onSettings }: DashboardProps) {
     });
   }, [initialized, initializeData, checkForUpdate]);
 
-  const handleEdit = (issue: any) => { setEditIssue(issue); setModalOpen(true); };
-  const handleCreate = () => { setEditIssue(null); setModalOpen(true); };
-  const handleClose = () => { setModalOpen(false); setEditIssue(null); };
+  const handleEdit = useCallback((issue: any) => { setEditIssue(issue); setModalOpen(true); }, []);
+  const handleCreate = useCallback(() => { setEditIssue(null); setModalOpen(true); }, []);
+  const handleClose = useCallback(() => { setModalOpen(false); setEditIssue(null); }, []);
 
-  const handleForceRefresh = async () => {
+  const handleForceRefresh = useCallback(async () => {
     const { result } = await confirm({
       title: 'Force Reload from GitLab?',
       description: 'This will discard your cached data and re-fetch everything from GitLab API. Your settings, labels, and pinned tasks are preserved.',
@@ -89,7 +89,7 @@ export default function Dashboard({ onSettings }: DashboardProps) {
     setRefreshing(true);
     await refreshAll();
     setRefreshing(false);
-  };
+  }, [confirm, refreshAll]);
 
   // Aggregated stats
   // Aggregated stats (enabled projects only)

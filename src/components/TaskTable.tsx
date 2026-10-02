@@ -3,17 +3,17 @@ import { createPortal } from 'react-dom';
 import {
   useReactTable, getCoreRowModel,
   getFilteredRowModel, getPaginationRowModel, flexRender,
-  type ColumnDef, type SortingState,
+  type ColumnDef, type SortingState, type Row,
 } from '@tanstack/react-table';
 import {
   ChevronUp, ChevronDown, ChevronsUpDown, ExternalLink,
   Edit2, Trash2, Check, X, ChevronLeft, ChevronRight,
   MoreHorizontal, CheckCircle2, Circle, Pin, PinOff,
   Tag, UserPlus, Calendar, Search, Plus, Loader2,
-  Users, CheckSquare, Copy, FileText, Link as LinkIcon,
+  Users, CheckSquare, Copy,
 } from 'lucide-react';
 import { Button, Badge, Avatar, Spinner } from './ui/index';
-import { DropdownMenu, DropdownItem, DropdownSeparator, useConfirm } from './ui/overlay';
+import { DropdownMenu, DropdownItem, DropdownSeparator, useConfirm, Modal, ModalHeader, ModalBody, ModalFooter } from './ui/overlay';
 import { useToast } from './ui/overlay';
 import useStore from '../store/useStore';
 import { cn, formatDate, getDueDateInfo, getDueDateBadgeClass, getVisibleGlobalLabels } from '../lib/utils';
@@ -38,6 +38,8 @@ interface FloatingPopoverProps {
 // ─────────────────────────────────────────────────────────────────────────────
 function FloatingPopover({ anchorRef, open, onClose, children, width = 240 }: FloatingPopoverProps) {
   const [pos, setPos] = useState({ top: 0, left: 0 });
+  const popoverRef = useRef<HTMLDivElement>(null);
+
   useEffect(() => {
     if (!open || !anchorRef.current) return;
     const r = anchorRef.current.getBoundingClientRect();
@@ -55,11 +57,36 @@ function FloatingPopover({ anchorRef, open, onClose, children, width = 240 }: Fl
     setPos({ top, left });
   }, [open, anchorRef, width]);
 
+  // Outside click & Escape handler with capture phase
+  useEffect(() => {
+    if (!open) return;
+    const handleOutside = (e: MouseEvent | TouchEvent) => {
+      const target = e.target as Node;
+      if (popoverRef.current && popoverRef.current.contains(target)) return;
+      if (anchorRef.current && anchorRef.current.contains(target)) return;
+      onClose();
+    };
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+    };
+
+    document.addEventListener('mousedown', handleOutside, true);
+    document.addEventListener('touchstart', handleOutside, true);
+    window.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.removeEventListener('mousedown', handleOutside, true);
+      document.removeEventListener('touchstart', handleOutside, true);
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [open, onClose, anchorRef]);
+
   if (!open) return null;
   return createPortal(
     <>
-      <div className="fixed inset-0 z-[9990]" onClick={onClose} />
+      <div className="fixed inset-0 z-[9990]" onMouseDown={onClose} />
       <div
+        ref={popoverRef}
         className="fixed z-[9995] animate-fade-in rounded-xl border border-[var(--border)] bg-[var(--surface)] shadow-[var(--shadow-modal)] overflow-hidden"
         style={{ top: pos.top, left: pos.left, width }}
       >
@@ -752,6 +779,355 @@ function SkeletonRows({ count = 8 }: { count?: number }) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Copy Options Modal with Checkboxes & Live Preview
+// ─────────────────────────────────────────────────────────────────────────────
+interface CopyFields {
+  title: boolean;
+  url: boolean;
+  iid: boolean;
+  status: boolean;
+  dueDate: boolean;
+  labels: boolean;
+  assignees: boolean;
+  project: boolean;
+}
+
+type CopyFormat = 'text' | 'markdown' | 'table' | 'json';
+
+function CopyOptionsModal({
+  open,
+  onClose,
+  issues,
+  projectMap,
+  customStatuses,
+}: {
+  open: boolean;
+  onClose: () => void;
+  issues: any[];
+  projectMap?: Record<string, any>;
+  customStatuses?: Record<string, string>;
+}) {
+  const toast = useToast();
+  const [fields, setFields] = useState<CopyFields>({
+    title: true,
+    url: true,
+    iid: true,
+    status: false,
+    dueDate: false,
+    labels: false,
+    assignees: false,
+    project: false,
+  });
+  const [format, setFormat] = useState<CopyFormat>('text');
+  const [copied, setCopied] = useState(false);
+
+  const toggleField = (key: keyof CopyFields) => {
+    setFields((prev) => ({ ...prev, [key]: !prev[key] }));
+  };
+
+  const applyPreset = (preset: 'titles' | 'urls' | 'markdown' | 'full') => {
+    if (preset === 'titles') {
+      setFields({ title: true, url: false, iid: false, status: false, dueDate: false, labels: false, assignees: false, project: false });
+      setFormat('text');
+    } else if (preset === 'urls') {
+      setFields({ title: false, url: true, iid: false, status: false, dueDate: false, labels: false, assignees: false, project: false });
+      setFormat('text');
+    } else if (preset === 'markdown') {
+      setFields({ title: true, url: true, iid: true, status: false, dueDate: false, labels: false, assignees: false, project: false });
+      setFormat('markdown');
+    } else if (preset === 'full') {
+      setFields({ title: true, url: true, iid: true, status: true, dueDate: true, labels: true, assignees: true, project: true });
+      setFormat('text');
+    }
+  };
+
+  const generatedText = useMemo(() => {
+    if (!issues || issues.length === 0) return '';
+
+    if (format === 'json') {
+      const data = issues.map((i) => {
+        const item: any = {};
+        if (fields.iid) item.iid = i.iid;
+        if (fields.title) item.title = i.title;
+        if (fields.url) item.url = i.web_url;
+        if (fields.project) item.project = projectMap?.[i.project_id]?.name || i.project_id;
+        if (fields.status) item.status = getEffectiveStatus(i, customStatuses || {});
+        if (fields.dueDate) item.due_date = i.due_date || null;
+        if (fields.labels) item.labels = (i.labels || []).map((l: any) => typeof l === 'string' ? l : l?.name).filter(Boolean);
+        if (fields.assignees) item.assignees = (i.assignees || []).map((a: any) => a.name || a.username);
+        return item;
+      });
+      return JSON.stringify(data, null, 2);
+    }
+
+    if (format === 'table') {
+      const headers: string[] = [];
+      if (fields.project) headers.push('Project');
+      if (fields.iid) headers.push('#');
+      if (fields.title) headers.push('Title');
+      if (fields.status) headers.push('Status');
+      if (fields.dueDate) headers.push('Due Date');
+      if (fields.labels) headers.push('Labels');
+      if (fields.assignees) headers.push('Assignees');
+      if (fields.url) headers.push('Link');
+
+      if (headers.length === 0) return '';
+
+      const sep = headers.map(() => '---');
+      const lines = [
+        `| ${headers.join(' | ')} |`,
+        `| ${sep.join(' | ')} |`,
+      ];
+
+      for (const i of issues) {
+        const row: string[] = [];
+        if (fields.project) row.push(projectMap?.[i.project_id]?.name || String(i.project_id));
+        if (fields.iid) row.push(`#${i.iid}`);
+        if (fields.title) row.push(i.title?.replace(/\|/g, '\\|') || '');
+        if (fields.status) row.push(getEffectiveStatus(i, customStatuses || {}));
+        if (fields.dueDate) row.push(i.due_date || '-');
+        if (fields.labels) {
+          const lbls = (i.labels || []).map((l: any) => typeof l === 'string' ? l : l?.name).filter(Boolean).join(', ');
+          row.push(lbls || '-');
+        }
+        if (fields.assignees) {
+          const asg = (i.assignees || []).map((a: any) => a.name || a.username).filter(Boolean).join(', ');
+          row.push(asg || '-');
+        }
+        if (fields.url) row.push(i.web_url ? `[Link](${i.web_url})` : '-');
+        lines.push(`| ${row.join(' | ')} |`);
+      }
+      return lines.join('\n');
+    }
+
+    if (format === 'markdown') {
+      return issues.map((i) => {
+        const link = fields.url ? (i.web_url || '#') : '#';
+        const titleText = [
+          fields.project ? `[${projectMap?.[i.project_id]?.name || i.project_id}]` : '',
+          fields.iid ? `#${i.iid}` : '',
+          fields.title ? i.title : (fields.url ? i.web_url : `#${i.iid}`),
+        ].filter(Boolean).join(' ');
+
+        let main = fields.url ? `- [${titleText}](${link})` : `- ${titleText}`;
+
+        const extra: string[] = [];
+        if (fields.status) extra.push(`status: ${getEffectiveStatus(i, customStatuses || {})}`);
+        if (fields.dueDate && i.due_date) extra.push(`due: ${i.due_date}`);
+        if (fields.labels && (i.labels || []).length > 0) {
+          const lbls = (i.labels || []).map((l: any) => typeof l === 'string' ? l : l?.name).filter(Boolean).join(', ');
+          extra.push(`labels: ${lbls}`);
+        }
+        if (fields.assignees && (i.assignees || []).length > 0) {
+          const asg = (i.assignees || []).map((a: any) => a.name || a.username).filter(Boolean).join(', ');
+          extra.push(`assignees: ${asg}`);
+        }
+        if (extra.length > 0) main += ` (${extra.join(' | ')})`;
+        return main;
+      }).join('\n');
+    }
+
+    // Default: Plain Text list
+    return issues.map((i) => {
+      const parts: string[] = [];
+      if (fields.project) parts.push(`[${projectMap?.[i.project_id]?.name || i.project_id}]`);
+      if (fields.iid) parts.push(`#${i.iid}`);
+      if (fields.title) parts.push(i.title);
+
+      const extras: string[] = [];
+      if (fields.status) extras.push(`Status: ${getEffectiveStatus(i, customStatuses || {})}`);
+      if (fields.dueDate) extras.push(`Due: ${i.due_date || 'None'}`);
+      if (fields.labels) {
+        const lbls = (i.labels || []).map((l: any) => typeof l === 'string' ? l : l?.name).filter(Boolean).join(', ');
+        extras.push(`Labels: ${lbls || 'None'}`);
+      }
+      if (fields.assignees) {
+        const asg = (i.assignees || []).map((a: any) => a.name || a.username).filter(Boolean).join(', ');
+        extras.push(`Assignees: ${asg || 'None'}`);
+      }
+      if (fields.url && i.web_url) extras.push(`URL: ${i.web_url}`);
+
+      if (extras.length > 0) {
+        return `${parts.join(' ')}\n  ${extras.join(' | ')}`;
+      }
+      return parts.join(' ') || (fields.url ? i.web_url : '');
+    }).join('\n\n');
+  }, [issues, fields, format, projectMap, customStatuses]);
+
+  const handleCopy = () => {
+    if (!generatedText.trim()) {
+      toast({ type: 'warning', message: 'No fields selected to copy' });
+      return;
+    }
+    navigator.clipboard.writeText(generatedText).then(() => {
+      setCopied(true);
+      toast({ type: 'success', message: `✓ Copied ${issues.length} task(s) to clipboard` });
+      setTimeout(() => {
+        setCopied(false);
+        onClose();
+      }, 500);
+    }).catch(() => {
+      toast({ type: 'error', message: 'Failed to copy to clipboard' });
+    });
+  };
+
+  const fieldOptions: Array<{ key: keyof CopyFields; label: string }> = [
+    { key: 'title', label: 'Title' },
+    { key: 'url', label: 'URL / Link' },
+    { key: 'iid', label: 'Issue # (IID)' },
+    { key: 'status', label: 'Status' },
+    { key: 'dueDate', label: 'Due Date' },
+    { key: 'labels', label: 'Labels' },
+    { key: 'assignees', label: 'Assignees' },
+    { key: 'project', label: 'Project Name' },
+  ];
+
+  return (
+    <Modal open={open} onClose={onClose} size="lg">
+      <ModalHeader onClose={onClose}>
+        <div className="flex items-center gap-2">
+          <Copy className="h-4 w-4 text-[var(--accent)]" />
+          <span className="font-semibold text-sm text-[var(--text-1)]">
+            Copy {issues.length} Selected Task{issues.length === 1 ? '' : 's'}
+          </span>
+        </div>
+      </ModalHeader>
+
+      <ModalBody className="space-y-4 max-h-[75vh] overflow-y-auto">
+        {/* Preset Chips */}
+        <div>
+          <span className="text-[11px] font-semibold text-[var(--text-3)] uppercase tracking-wider block mb-2">
+            Quick Presets
+          </span>
+          <div className="flex flex-wrap gap-1.5">
+            <button
+              type="button"
+              onClick={() => applyPreset('titles')}
+              className="px-2.5 py-1 rounded-lg border border-[var(--border)] bg-[var(--surface-2)] text-xs text-[var(--text-2)] hover:border-[var(--border-hover)] hover:text-[var(--text-1)] transition-colors cursor-pointer"
+            >
+              Titles Only
+            </button>
+            <button
+              type="button"
+              onClick={() => applyPreset('urls')}
+              className="px-2.5 py-1 rounded-lg border border-[var(--border)] bg-[var(--surface-2)] text-xs text-[var(--text-2)] hover:border-[var(--border-hover)] hover:text-[var(--text-1)] transition-colors cursor-pointer"
+            >
+              URLs Only
+            </button>
+            <button
+              type="button"
+              onClick={() => applyPreset('markdown')}
+              className="px-2.5 py-1 rounded-lg border border-[var(--border)] bg-[var(--surface-2)] text-xs text-[var(--text-2)] hover:border-[var(--border-hover)] hover:text-[var(--text-1)] transition-colors cursor-pointer"
+            >
+              Markdown Links
+            </button>
+            <button
+              type="button"
+              onClick={() => applyPreset('full')}
+              className="px-2.5 py-1 rounded-lg border border-[var(--border)] bg-[var(--surface-2)] text-xs text-[var(--text-2)] hover:border-[var(--border-hover)] hover:text-[var(--text-1)] transition-colors cursor-pointer"
+            >
+              Full Details
+            </button>
+          </div>
+        </div>
+
+        {/* Checkbox Grid */}
+        <div>
+          <span className="text-[11px] font-semibold text-[var(--text-3)] uppercase tracking-wider block mb-2">
+            Select Data Fields to Copy
+          </span>
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+            {fieldOptions.map((opt) => {
+              const checked = fields[opt.key];
+              return (
+                <button
+                  key={opt.key}
+                  type="button"
+                  onClick={() => toggleField(opt.key)}
+                  className={cn(
+                    'flex items-center gap-2 p-2.5 rounded-xl border text-xs text-left cursor-pointer transition-all',
+                    checked
+                      ? 'border-[var(--accent)] bg-[var(--accent-muted)] text-[var(--text-1)] font-medium shadow-xs'
+                      : 'border-[var(--border)] bg-[var(--surface-2)] text-[var(--text-3)] hover:border-[var(--border-hover)]'
+                  )}
+                >
+                  <div className={cn(
+                    'h-4 w-4 rounded flex items-center justify-center border shrink-0 transition-colors',
+                    checked
+                      ? 'bg-[var(--accent)] border-[var(--accent)] text-white'
+                      : 'border-[var(--border)] bg-[var(--surface)]'
+                  )}>
+                    {checked && <Check className="h-3 w-3 stroke-[3]" />}
+                  </div>
+                  <div className="min-w-0">
+                    <p className="truncate text-xs">{opt.label}</p>
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* Format Selector */}
+        <div>
+          <span className="text-[11px] font-semibold text-[var(--text-3)] uppercase tracking-wider block mb-2">
+            Format Output
+          </span>
+          <div className="flex flex-wrap gap-2">
+            {(['text', 'markdown', 'table', 'json'] as CopyFormat[]).map((fmt) => (
+              <button
+                key={fmt}
+                type="button"
+                onClick={() => setFormat(fmt)}
+                className={cn(
+                  'px-3 py-1.5 rounded-lg border text-xs font-medium cursor-pointer transition-all capitalize',
+                  format === fmt
+                    ? 'border-[var(--accent)] bg-[var(--accent-muted)] text-[var(--accent)] font-semibold'
+                    : 'border-[var(--border)] bg-[var(--surface-2)] text-[var(--text-2)] hover:border-[var(--border-hover)]'
+                )}
+              >
+                {fmt === 'text' ? 'Plain List' : fmt === 'markdown' ? 'Markdown List' : fmt === 'table' ? 'Markdown Table' : 'JSON'}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* Live Preview */}
+        <div>
+          <div className="flex items-center justify-between mb-1.5">
+            <span className="text-[11px] font-semibold text-[var(--text-3)] uppercase tracking-wider">
+              Preview
+            </span>
+            <span className="text-[10px] text-[var(--text-3)] font-mono">
+              {generatedText.length} characters
+            </span>
+          </div>
+          <div className="p-3 rounded-xl border border-[var(--border)] bg-[var(--surface-2)] max-h-36 overflow-y-auto font-mono text-[11px] text-[var(--text-2)] whitespace-pre-wrap select-all">
+            {generatedText || <span className="italic text-[var(--text-3)]">No fields selected</span>}
+          </div>
+        </div>
+      </ModalBody>
+
+      <ModalFooter>
+        <Button variant="ghost" size="sm" onClick={onClose}>
+          Cancel
+        </Button>
+        <Button
+          variant="primary"
+          size="sm"
+          onClick={handleCopy}
+          disabled={!generatedText.trim()}
+          className="gap-1.5"
+        >
+          {copied ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
+          {copied ? 'Copied!' : `Copy to Clipboard (${issues.length})`}
+        </Button>
+      </ModalFooter>
+    </Modal>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Bulk Action Bar
 // ─────────────────────────────────────────────────────────────────────────────
 interface BulkActionBarProps {
@@ -771,47 +1147,7 @@ function BulkActionBar({
   const count = selectedRows.length;
   const openCount   = selectedRows.filter((r) => r.original.state === 'opened').length;
   const closedCount = selectedRows.filter((r) => r.original.state === 'closed').length;
-  const toast = useToast();
-
-  const handleCopy = (type: 'titles' | 'urls' | 'dates' | 'statuses' | 'labels' | 'markdown' | 'summary') => {
-    const issues = selectedRows.map((r) => r.original);
-    let text = '';
-
-    if (type === 'titles') {
-      text = issues.map((i) => i.title).join('\n');
-    } else if (type === 'urls') {
-      text = issues.map((i) => i.web_url || '').filter(Boolean).join('\n');
-    } else if (type === 'dates') {
-      text = issues.map((i) => `${i.title}: ${i.due_date ? `Due ${i.due_date}` : 'No due date'}`).join('\n');
-    } else if (type === 'statuses') {
-      text = issues.map((i) => `${i.title}: ${getEffectiveStatus(i, customStatuses || {})}`).join('\n');
-    } else if (type === 'labels') {
-      text = issues.map((i) => {
-        const lbls = (i.labels || []).map((l: any) => typeof l === 'string' ? l : l?.name).filter(Boolean);
-        return `${i.title}: ${lbls.join(', ') || 'No labels'}`;
-      }).join('\n');
-    } else if (type === 'markdown') {
-      text = issues.map((i) => `- [${i.title}](${i.web_url || '#'})`).join('\n');
-    } else if (type === 'summary') {
-      text = issues.map((i, idx) => {
-        const proj = projectMap?.[i.project_id]?.name || `Project #${i.project_id}`;
-        const st = getEffectiveStatus(i, customStatuses || {});
-        const lbls = (i.labels || []).map((l: any) => typeof l === 'string' ? l : l?.name).filter(Boolean).join(', ');
-        return `${idx + 1}. [${proj}] ${i.title}\n   Status: ${st} | Due: ${i.due_date || 'None'} | Labels: ${lbls || 'None'}\n   Link: ${i.web_url || 'N/A'}`;
-      }).join('\n\n');
-    }
-
-    if (!text) {
-      toast({ type: 'warning', message: 'No data to copy' });
-      return;
-    }
-
-    navigator.clipboard.writeText(text).then(() => {
-      toast({ type: 'success', message: `✓ Copied ${issues.length} task ${type} to clipboard` });
-    }).catch(() => {
-      toast({ type: 'error', message: 'Failed to copy to clipboard' });
-    });
-  };
+  const [copyModalOpen, setCopyModalOpen] = useState(false);
 
   return (
     <div className="flex items-center gap-3 px-4 py-2.5 bg-[var(--accent-muted)] border-b border-[var(--accent)]/20 animate-fade-in flex-wrap">
@@ -838,26 +1174,24 @@ function BulkActionBar({
           Assign to me
         </Button>
 
-        {/* Copy Dropdown */}
-        <DropdownMenu
-          trigger={
-            <Button variant="secondary" size="sm" className="gap-1.5">
-              <Copy className="h-3.5 w-3.5" />
-              Copy
-            </Button>
-          }
-          align="left"
+        {/* Copy Button with interactive checkbox options */}
+        <Button
+          variant="secondary"
+          size="sm"
+          onClick={() => setCopyModalOpen(true)}
+          className="gap-1.5"
         >
-          <DropdownItem icon={Copy} onClick={() => handleCopy('titles')}>Copy Titles</DropdownItem>
-          <DropdownItem icon={LinkIcon} onClick={() => handleCopy('urls')}>Copy URLs</DropdownItem>
-          <DropdownItem icon={FileText} onClick={() => handleCopy('markdown')}>Copy as Markdown Links</DropdownItem>
-          <DropdownSeparator />
-          <DropdownItem icon={Calendar} onClick={() => handleCopy('dates')}>Copy Due Dates</DropdownItem>
-          <DropdownItem icon={Circle} onClick={() => handleCopy('statuses')}>Copy Statuses</DropdownItem>
-          <DropdownItem icon={Tag} onClick={() => handleCopy('labels')}>Copy Labels</DropdownItem>
-          <DropdownSeparator />
-          <DropdownItem icon={FileText} onClick={() => handleCopy('summary')}>Copy Full Summary (All)</DropdownItem>
-        </DropdownMenu>
+          <Copy className="h-3.5 w-3.5" />
+          Copy
+        </Button>
+
+        <CopyOptionsModal
+          open={copyModalOpen}
+          onClose={() => setCopyModalOpen(false)}
+          issues={selectedRows.map((r) => r.original)}
+          projectMap={projectMap}
+          customStatuses={customStatuses}
+        />
       </div>
       <Button variant="ghost" size="icon-sm" onClick={onClear} title="Clear selection">
         <X className="h-4 w-4" />
@@ -865,6 +1199,44 @@ function BulkActionBar({
     </div>
   );
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Memoized TaskTableRow to prevent full table re-render on row updates
+// ─────────────────────────────────────────────────────────────────────────────
+interface TaskTableRowProps {
+  row: Row<any>;
+  isPinned: boolean;
+  compact?: boolean;
+}
+
+const TaskTableRow = React.memo(
+  function TaskTableRow({ row, isPinned, compact }: TaskTableRowProps) {
+    return (
+      <tr
+        key={row.id}
+        className={cn(
+          'group border-b border-[var(--border)] hover:bg-[var(--surface)] transition-all duration-200 theme-transition',
+          row.getIsSelected() && 'bg-[var(--accent-muted)]',
+          isPinned && 'border-l-2 border-l-[var(--accent)] bg-[var(--surface-2)]/30 shadow-xs'
+        )}
+      >
+        {row.getVisibleCells().map((cell) => (
+          <td key={cell.id} className={cn('px-4 align-middle', compact ? 'py-1.5' : 'py-3')}>
+            {flexRender(cell.column.columnDef.cell, cell.getContext())}
+          </td>
+        ))}
+      </tr>
+    );
+  },
+  (prev, next) => {
+    return (
+      prev.row.original === next.row.original &&
+      prev.row.getIsSelected() === next.row.getIsSelected() &&
+      prev.isPinned === next.isPinned &&
+      prev.compact === next.compact
+    );
+  }
+);
 
 export interface TaskTableProps {
   onEdit?: (issue: any) => void;
@@ -1279,25 +1651,14 @@ export default function TaskTable({ onEdit }: TaskTableProps) {
                 </td>
               </tr>
             ) : (
-              table.getRowModel().rows.map((row) => {
-                const isPinned = pinnedKeys.has(`${row.original.project_id}_${row.original.iid}`);
-                return (
-                  <tr
-                    key={row.id}
-                    className={cn(
-                      'group border-b border-[var(--border)] hover:bg-[var(--surface)] transition-all duration-200 theme-transition',
-                      row.getIsSelected() && 'bg-[var(--accent-muted)]',
-                      isPinned && 'border-l-2 border-l-[var(--accent)] bg-[var(--surface-2)]/30 shadow-xs'
-                    )}
-                  >
-                    {row.getVisibleCells().map((cell) => (
-                      <td key={cell.id} className={cn('px-4 align-middle', appSettings?.compactTable ? 'py-1.5' : 'py-3')}>
-                        {flexRender(cell.column.columnDef.cell, cell.getContext())}
-                      </td>
-                    ))}
-                  </tr>
-                );
-              })
+              table.getRowModel().rows.map((row) => (
+                <TaskTableRow
+                  key={row.id}
+                  row={row}
+                  isPinned={pinnedKeys.has(`${row.original.project_id}_${row.original.iid}`)}
+                  compact={appSettings?.compactTable}
+                />
+              ))
             )}
           </tbody>
         </table>

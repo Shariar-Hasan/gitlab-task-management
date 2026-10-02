@@ -79,6 +79,7 @@ export const DropdownMenu = ({ trigger, children, align = 'right', className }: 
   const [open, setOpen] = React.useState(false);
   const [pos, setPos] = React.useState({ top: 0, left: 0, openUp: false });
   const triggerRef = React.useRef<HTMLDivElement>(null);
+  const menuRef = React.useRef<HTMLDivElement>(null);
 
   const calcPosition = React.useCallback(() => {
     if (!triggerRef.current) return;
@@ -99,11 +100,18 @@ export const DropdownMenu = ({ trigger, children, align = 'right', className }: 
   React.useEffect(() => {
     if (!open) return;
     calcPosition();
-    const handler = (e: MouseEvent) => {
-      if (triggerRef.current && !triggerRef.current.contains(e.target as Node)) setOpen(false);
+    const handler = (e: MouseEvent | TouchEvent) => {
+      const target = e.target as Node;
+      if (menuRef.current && menuRef.current.contains(target)) return;
+      if (triggerRef.current && triggerRef.current.contains(target)) return;
+      setOpen(false);
     };
-    document.addEventListener('mousedown', handler);
-    return () => document.removeEventListener('mousedown', handler);
+    document.addEventListener('mousedown', handler, true);
+    document.addEventListener('touchstart', handler, true);
+    return () => {
+      document.removeEventListener('mousedown', handler, true);
+      document.removeEventListener('touchstart', handler, true);
+    };
   }, [open, calcPosition]);
 
   const menuWidth = 180;
@@ -113,10 +121,11 @@ export const DropdownMenu = ({ trigger, children, align = 'right', className }: 
       <div onClick={() => setOpen((v) => !v)}>{trigger}</div>
       {open && createPortal(
         <>
-          <div className="fixed inset-0 z-[998]" onClick={() => setOpen(false)} />
+          <div className="fixed inset-0 z-[9990]" onMouseDown={() => setOpen(false)} />
           <div
+            ref={menuRef}
             className={cn(
-              'fixed z-[999] min-w-[160px] rounded-xl border border-[var(--border)] bg-[var(--surface)] shadow-[var(--shadow-modal)] py-1 animate-fade-in',
+              'fixed z-[9995] min-w-[160px] rounded-xl border border-[var(--border)] bg-[var(--surface)] shadow-[var(--shadow-modal)] py-1 animate-fade-in',
               className
             )}
             style={{

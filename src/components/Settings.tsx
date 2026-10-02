@@ -762,6 +762,265 @@ function SettingRow({ icon: Icon, title, desc, right }: { icon: any; title: stri
   );
 }
 
+// ── Board View Statuses Settings ──────────────────────────────────────────────
+function BoardStatusesSettings() {
+  const { boardStatuses, updateBoardStatus, addBoardStatus, deleteBoardStatus, resetBoardStatuses } = useStore();
+  const toast = useToast();
+  const [showAdd, setShowAdd] = useState(false);
+  const [newStatus, setNewStatus] = useState({ label: '', color: '#06b6d4' });
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editLabel, setEditLabel] = useState('');
+
+  const PRESET_STATUS_COLORS = ['#10b981', '#06b6d4', '#3b82f6', '#8b5cf6', '#ec4899', '#f59e0b', '#ef4444', '#64748b'];
+
+  const handleToggle = (id: string, currentEnabled: boolean) => {
+    const enabledCount = boardStatuses.filter((s) => s.enabled).length;
+    if (currentEnabled && enabledCount <= 1) {
+      toast({ type: 'warning', message: 'At least one status column must remain enabled' });
+      return;
+    }
+    updateBoardStatus(id, { enabled: !currentEnabled });
+    toast({ type: 'success', message: `✓ Status ${!currentEnabled ? 'enabled' : 'disabled'}` });
+  };
+
+  const handleColorChange = (id: string, color: string) => {
+    updateBoardStatus(id, { color });
+  };
+
+  const handleStartEdit = (s: any) => {
+    if (s.isSystem || s.id === 'open' || s.id === 'close') return;
+    setEditingId(s.id);
+    setEditLabel(s.label);
+  };
+
+  const handleSaveEdit = (id: string) => {
+    if (!editLabel.trim()) return;
+    updateBoardStatus(id, { label: editLabel.trim() });
+    setEditingId(null);
+    toast({ type: 'success', message: '✓ Status renamed' });
+  };
+
+  const handleDelete = (id: string, isSystem?: boolean) => {
+    if (isSystem || id === 'open' || id === 'close') {
+      toast({ type: 'error', message: "System statuses 'Open' and 'Closed' cannot be deleted" });
+      return;
+    }
+    if (window.confirm('Delete this custom status? Tasks with this status will revert to Open.')) {
+      deleteBoardStatus(id);
+      toast({ type: 'info', message: 'Status deleted' });
+    }
+  };
+
+  const handleAdd = (e: React.FormEvent) => {
+    e.preventDefault();
+    const trimmed = newStatus.label.trim();
+    if (!trimmed) return;
+    const lower = trimmed.toLowerCase();
+    if (lower === 'open' || lower === 'close' || lower === 'closed') {
+      toast({ type: 'error', message: "Cannot create 'Open' or 'Closed' as custom status" });
+      return;
+    }
+    addBoardStatus(trimmed, newStatus.color);
+    setNewStatus({ label: '', color: '#06b6d4' });
+    setShowAdd(false);
+    toast({ type: 'success', message: `✓ Added status: ${trimmed}` });
+  };
+
+  const handleReset = () => {
+    if (window.confirm('Reset board statuses to defaults? Custom statuses will be removed.')) {
+      resetBoardStatuses();
+      toast({ type: 'info', message: 'Board statuses restored to defaults' });
+    }
+  };
+
+  return (
+    <div className="space-y-5">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <h3 className="text-sm font-semibold text-[var(--text-1)] mb-0.5">Board View Statuses</h3>
+          <p className="text-xs text-[var(--text-3)]">
+            Configure column visibility and colors for Board View. 'Open' and 'Closed' are GitLab system statuses that can be toggled on/off and recolored, but cannot be created or deleted.
+          </p>
+        </div>
+        <div className="flex items-center gap-1.5 shrink-0">
+          <Button variant="ghost" size="sm" onClick={handleReset} className="text-xs text-[var(--text-3)] hover:text-[var(--text-1)]">
+            <RotateCcw className="h-3 w-3 mr-1" /> Reset
+          </Button>
+          <Button size="sm" onClick={() => setShowAdd(!showAdd)} className="text-xs">
+            <Plus className="h-3.5 w-3.5 mr-1" /> Add Status
+          </Button>
+        </div>
+      </div>
+
+      {/* Add Form */}
+      {showAdd && (
+        <Card className="p-4 border-[var(--accent)]/30 bg-[var(--surface-2)] animate-slide-up space-y-3">
+          <form onSubmit={handleAdd} className="space-y-3">
+            <div className="flex items-center justify-between">
+              <h4 className="text-xs font-semibold text-[var(--text-1)]">Create New Board Status</h4>
+              <button type="button" onClick={() => setShowAdd(false)} className="text-[var(--text-3)] hover:text-[var(--text-1)] cursor-pointer">
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            <div>
+              <label className="text-[11px] font-medium text-[var(--text-2)] mb-1 block">Status Name</label>
+              <Input
+                value={newStatus.label}
+                onChange={(e) => setNewStatus({ ...newStatus, label: e.target.value })}
+                placeholder="e.g. Review, QA, Blocked, Needs Info..."
+                className="h-8 text-xs"
+                autoFocus
+              />
+            </div>
+
+            <div>
+              <label className="text-[11px] font-medium text-[var(--text-2)] mb-1.5 block">Status Color</label>
+              <div className="flex items-center gap-1.5 flex-wrap">
+                {PRESET_STATUS_COLORS.map((c) => (
+                  <button
+                    key={c}
+                    type="button"
+                    onClick={() => setNewStatus({ ...newStatus, color: c })}
+                    className={cn(
+                      'h-6 w-6 rounded-full border-2 transition-transform hover:scale-110 shadow-xs cursor-pointer',
+                      newStatus.color === c ? 'border-white scale-110 ring-2 ring-[var(--accent)]' : 'border-transparent'
+                    )}
+                    style={{ background: c }}
+                  />
+                ))}
+                <input
+                  type="color"
+                  value={newStatus.color}
+                  onChange={(e) => setNewStatus({ ...newStatus, color: e.target.value })}
+                  className="h-6 w-6 rounded-full cursor-pointer border-0 p-0 shadow-xs"
+                  title="Choose custom color"
+                />
+              </div>
+            </div>
+
+            <div className="flex gap-2 pt-1">
+              <Button type="button" variant="ghost" size="sm" onClick={() => setShowAdd(false)} className="flex-1 text-xs">
+                Cancel
+              </Button>
+              <Button type="submit" size="sm" disabled={!newStatus.label.trim()} className="flex-1 text-xs">
+                Create Status
+              </Button>
+            </div>
+          </form>
+        </Card>
+      )}
+
+      {/* Statuses List */}
+      <div className="space-y-2">
+        {boardStatuses.map((s) => {
+          const isSystem = Boolean(s.isSystem || s.id === 'open' || s.id === 'close');
+          const isEditing = editingId === s.id;
+
+          return (
+            <Card
+              key={s.id}
+              className={cn(
+                'p-3 flex items-center justify-between gap-3 border transition-all',
+                s.enabled ? 'border-[var(--border)] bg-[var(--surface)]' : 'border-[var(--border)]/50 bg-[var(--surface-2)]/40 opacity-60'
+              )}
+            >
+              <div className="flex items-center gap-3 min-w-0 flex-1">
+                {/* Color input circle */}
+                <div className="relative shrink-0">
+                  <input
+                    type="color"
+                    value={s.color}
+                    onChange={(e) => handleColorChange(s.id, e.target.value)}
+                    className="h-7 w-7 rounded-full cursor-pointer border-0 p-0 opacity-0 absolute inset-0 z-10"
+                    title={`Change color for ${s.label}`}
+                  />
+                  <div
+                    className="h-7 w-7 rounded-full border-2 border-white/20 shadow-xs flex items-center justify-center pointer-events-none transition-transform hover:scale-105"
+                    style={{ backgroundColor: s.color }}
+                  >
+                    <span className="h-2 w-2 rounded-full bg-white/60" />
+                  </div>
+                </div>
+
+                {/* Name / edit */}
+                <div className="min-w-0 flex-1">
+                  {isEditing ? (
+                    <div className="flex items-center gap-1.5">
+                      <Input
+                        value={editLabel}
+                        onChange={(e) => setEditLabel(e.target.value)}
+                        className="h-7 text-xs"
+                        autoFocus
+                        onKeyDown={(e) => e.key === 'Enter' && handleSaveEdit(s.id)}
+                      />
+                      <Button size="icon-sm" onClick={() => handleSaveEdit(s.id)}><Check className="h-3.5 w-3.5" /></Button>
+                      <Button variant="ghost" size="icon-sm" onClick={() => setEditingId(null)}><X className="h-3.5 w-3.5" /></Button>
+                    </div>
+                  ) : (
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs font-semibold text-[var(--text-1)] truncate">{s.label}</span>
+                      {isSystem ? (
+                        <Badge className="text-[9px] px-1.5 py-0 bg-blue-500/10 text-blue-500 border-blue-500/20">
+                          GitLab System
+                        </Badge>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => handleStartEdit(s)}
+                          className="text-[var(--text-3)] hover:text-[var(--text-1)] transition-colors p-0.5 cursor-pointer"
+                          title="Rename status"
+                        >
+                          <Edit2 className="h-3 w-3" />
+                        </button>
+                      )}
+                    </div>
+                  )}
+                  <p className="text-[10px] text-[var(--text-3)] font-mono mt-0.5">
+                    ID: {s.id} {isSystem ? '• GitLab Status (cannot be deleted)' : '• Custom board status'}
+                  </p>
+                </div>
+              </div>
+
+              {/* Right controls: Enable/Disable switch & Delete button */}
+              <div className="flex items-center gap-2.5 shrink-0">
+                <div className="flex items-center gap-1.5">
+                  <span className="text-[11px] text-[var(--text-3)] font-medium">
+                    {s.enabled ? 'Visible' : 'Hidden'}
+                  </span>
+                  <Switch
+                    checked={s.enabled}
+                    onCheckedChange={() => handleToggle(s.id, s.enabled)}
+                  />
+                </div>
+
+                {isSystem ? (
+                  <div
+                    className="h-7 w-7 rounded-lg flex items-center justify-center text-[var(--text-3)]/30 cursor-not-allowed"
+                    title="GitLab system statuses ('Open' and 'Closed') cannot be deleted"
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </div>
+                ) : (
+                  <Button
+                    variant="ghost"
+                    size="icon-sm"
+                    onClick={() => handleDelete(s.id, s.isSystem)}
+                    className="text-red-400 hover:text-red-500 hover:bg-red-500/10 cursor-pointer"
+                    title="Delete status"
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </Button>
+                )}
+              </div>
+            </Card>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 // ── Task Defaults Settings ────────────────────────────────────────────────────
 function TaskSettings() {
   const { appSettings, updateAppSettings, currentUser, pinnedKeys, projects, globalLabels } = useStore();
@@ -1666,14 +1925,15 @@ interface SectionItem {
 }
 
 const SECTIONS: SectionItem[] = [
-  { id: 'connection', label: 'Connection',       icon: Link,       component: ConnectionSettings },
-  { id: 'appearance', label: 'Appearance & Clock', icon: Palette,  component: AppearanceSettings },
-  { id: 'projects',   label: 'Projects',         icon: FolderGit2, component: ProjectSettings },
-  { id: 'labels',     label: 'Global Labels',    icon: Tag,        component: GlobalLabelsSettings },
-  { id: 'templates',  label: 'Templates',        icon: FileText,   component: TemplatesSettings },
-  { id: 'tasks',      label: 'Task Defaults',    icon: ListTodo,   component: TaskSettings },
-  { id: 'updates',    label: 'Version & Updates', icon: Download,   component: UpdatesSettings },
-  { id: 'storage',    label: 'Storage & Cache',  icon: Database,   component: StorageSettings },
+  { id: 'connection', label: 'Connection',       icon: Link,        component: ConnectionSettings },
+  { id: 'appearance', label: 'Appearance & Clock', icon: Palette,   component: AppearanceSettings },
+  { id: 'projects',   label: 'Projects',         icon: FolderGit2,  component: ProjectSettings },
+  { id: 'board',      label: 'Board Statuses',   icon: LayoutGrid,  component: BoardStatusesSettings },
+  { id: 'labels',     label: 'Global Labels',    icon: Tag,         component: GlobalLabelsSettings },
+  { id: 'templates',  label: 'Templates',        icon: FileText,    component: TemplatesSettings },
+  { id: 'tasks',      label: 'Task Defaults',    icon: ListTodo,    component: TaskSettings },
+  { id: 'updates',    label: 'Version & Updates', icon: Download,    component: UpdatesSettings },
+  { id: 'storage',    label: 'Storage & Cache',  icon: Database,    component: StorageSettings },
 ];
 
 export interface SettingsProps {

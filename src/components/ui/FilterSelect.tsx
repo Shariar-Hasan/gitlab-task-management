@@ -45,6 +45,7 @@ export function FilterSelect({
   const [search, setSearch] = useState('');
   const [pos, setPos] = useState({ top: 0, left: 0 });
   const anchorRef = useRef<HTMLButtonElement>(null);
+  const popoverRef = useRef<HTMLDivElement>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
 
   // Multi-select helpers
@@ -84,14 +85,28 @@ export function FilterSelect({
     }, 50);
   }, [open, width]);
 
-  // Close on Escape
+  // Close on Escape or Outside click with capture
   useEffect(() => {
     if (!open) return;
+    const handleOutside = (e: MouseEvent | TouchEvent) => {
+      const target = e.target as Node;
+      if (popoverRef.current && popoverRef.current.contains(target)) return;
+      if (anchorRef.current && anchorRef.current.contains(target)) return;
+      setOpen(false);
+    };
+
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') setOpen(false);
     };
+
+    document.addEventListener('mousedown', handleOutside, true);
+    document.addEventListener('touchstart', handleOutside, true);
     window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
+    return () => {
+      document.removeEventListener('mousedown', handleOutside, true);
+      document.removeEventListener('touchstart', handleOutside, true);
+      window.removeEventListener('keydown', handleKeyDown);
+    };
   }, [open]);
 
   // Filtered options by search
@@ -208,9 +223,10 @@ export function FilterSelect({
       {open &&
         createPortal(
           <>
-            <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
+            <div className="fixed inset-0 z-[9990]" onMouseDown={() => setOpen(false)} />
             <div
-              className="fixed z-50 animate-fade-in rounded-xl border border-[var(--border)] bg-[var(--surface)] shadow-[var(--shadow-modal)] overflow-hidden flex flex-col max-h-[340px]"
+              ref={popoverRef}
+              className="fixed z-[9995] animate-fade-in rounded-xl border border-[var(--border)] bg-[var(--surface)] shadow-[var(--shadow-modal)] overflow-hidden flex flex-col max-h-[340px]"
               style={{ top: pos.top, left: pos.left, width }}
             >
               {/* Optional Search bar */}
