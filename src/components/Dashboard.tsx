@@ -3,7 +3,7 @@ import {
   GitBranch, Search, Plus, Filter, RefreshCw, Settings,
   AlertCircle, X, BarChart3, CheckCircle2, Clock, Circle,
   FolderGit2, CircleDot, Tag, List, Kanban, User, Bell,
-  ExternalLink, Keyboard, HelpCircle,
+  ExternalLink, Keyboard, HelpCircle, Sparkles, Command,
 } from 'lucide-react';
 import {
   Button, Input, Spinner, ProgressBar, Skeleton,
@@ -13,6 +13,8 @@ import { Modal } from './ui/overlay';
 import TaskTable from './TaskTable';
 import BoardView from './BoardView';
 import TaskModal from './TaskModal';
+import CommandPalette from './CommandPalette';
+import StandupInsightsModal from './StandupInsightsModal';
 import useStore from '../store/useStore';
 import { cn } from '../lib/utils';
 import { TASK_STATUSES, getEffectiveStatus } from '../lib/localStore';
@@ -49,6 +51,7 @@ function KeyboardShortcutsModal({ open, onClose }: { open: boolean; onClose: () 
     {
       category: 'Navigation & Views',
       items: [
+        { keys: ['⌘K', 'or', 'Ctrl+K'], desc: 'Open Command Palette & Omnibar' },
         { keys: ['1', 'or', 'T'], desc: 'Switch to Table View' },
         { keys: ['2', 'or', 'B'], desc: 'Switch to Board (Kanban) View' },
         { keys: ['/'], desc: 'Focus search bar' },
@@ -134,11 +137,14 @@ export default function Dashboard({ onSettings }: DashboardProps) {
     viewMode, setViewMode, updateAvailable, latestVersion, checkForUpdate,
     boardStatuses,
     cloudSyncStatus, cloudSyncLastSynced, syncToCloud,
+    theme, setTheme,
   } = useStore();
 
   const confirm = useConfirm();
   const [modalOpen, setModalOpen] = useState(false);
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
+  const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
+  const [standupOpen, setStandupOpen] = useState(false);
   const [editIssue, setEditIssue] = useState<any>(null);
   const [initialized, setInitialized] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
@@ -175,6 +181,13 @@ export default function Dashboard({ onSettings }: DashboardProps) {
   // Global Keyboard Shortcuts listener
   useEffect(() => {
     function handleKeyDown(e: KeyboardEvent) {
+      // Cmd+K / Ctrl+K opens Command Palette from anywhere
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
+        e.preventDefault();
+        setCommandPaletteOpen((v) => !v);
+        return;
+      }
+
       const activeEl = document.activeElement;
       const isInputActive = activeEl instanceof HTMLInputElement || activeEl instanceof HTMLTextAreaElement || (activeEl as HTMLElement)?.isContentEditable;
 
@@ -373,6 +386,20 @@ export default function Dashboard({ onSettings }: DashboardProps) {
             </div>
           </div>
 
+          {/* Omnibar / Command Palette Trigger */}
+          <button
+            type="button"
+            onClick={() => setCommandPaletteOpen(true)}
+            className="hidden md:flex items-center gap-2 px-3 py-1.5 rounded-xl border border-[var(--border)] bg-[var(--surface-2)]/60 hover:bg-[var(--surface-2)] hover:border-[var(--border-hover)] text-xs text-[var(--text-3)] hover:text-[var(--text-2)] transition-all cursor-pointer shadow-xs min-w-[210px] max-w-sm"
+            title="Press Ctrl+K or Cmd+K to search tasks or trigger commands"
+          >
+            <Search className="h-3.5 w-3.5 text-[var(--accent)]" />
+            <span className="flex-1 text-left truncate">Search or run command...</span>
+            <kbd className="px-1.5 py-0.5 rounded text-[10px] font-mono font-semibold bg-[var(--surface)] border border-[var(--border)] text-[var(--text-2)] shadow-2xs">
+              ⌘K
+            </kbd>
+          </button>
+
           {/* Right actions */}
           <div className="flex items-center gap-1.5 ml-auto shrink-0">
             <CacheStatus lastFetchedAt={lastFetchedAt} />
@@ -381,7 +408,7 @@ export default function Dashboard({ onSettings }: DashboardProps) {
             <div className="flex items-center bg-[var(--surface-2)] border border-[var(--border)] rounded-lg p-0.5 gap-0.5">
               <button
                 onClick={() => setViewMode('table')}
-                title="Table View"
+                title="Table View (1 or T)"
                 className={cn(
                   'flex items-center justify-center h-6 w-6 rounded-md transition-all cursor-pointer',
                   viewMode !== 'board'
@@ -393,7 +420,7 @@ export default function Dashboard({ onSettings }: DashboardProps) {
               </button>
               <button
                 onClick={() => setViewMode('board')}
-                title="Board (Kanban) View"
+                title="Board (Kanban) View (2 or B)"
                 className={cn(
                   'flex items-center justify-center h-6 w-6 rounded-md transition-all cursor-pointer',
                   viewMode === 'board'
@@ -406,6 +433,17 @@ export default function Dashboard({ onSettings }: DashboardProps) {
             </div>
 
             <ThemeToggle />
+
+            {/* Standup & Velocity Insights */}
+            <button
+              type="button"
+              onClick={() => setStandupOpen(true)}
+              title="Daily Standup Generator & Velocity Insights"
+              className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg border border-[var(--border)] bg-[var(--surface-2)] hover:border-[var(--border-hover)] hover:text-[var(--text-1)] text-[var(--text-2)] text-xs transition-colors cursor-pointer"
+            >
+              <Sparkles className="h-3.5 w-3.5 text-purple-400" />
+              <span className="hidden xl:inline text-[11px] font-medium">Standup & Insights</span>
+            </button>
 
             {/* Cloud Backup Quick Sync */}
             <button
@@ -601,6 +639,41 @@ export default function Dashboard({ onSettings }: DashboardProps) {
 
       <TaskModal open={modalOpen} onClose={handleClose} editIssue={editIssue} />
       <KeyboardShortcutsModal open={shortcutsOpen} onClose={() => setShortcutsOpen(false)} />
+
+      {/* ── Command Palette (Ctrl+K / Cmd+K) ─────────────────────────────────── */}
+      <CommandPalette
+        open={commandPaletteOpen}
+        onClose={() => setCommandPaletteOpen(false)}
+        tasks={issues}
+        projects={projects}
+        projectOverrides={projectOverrides}
+        customStatuses={customStatuses}
+        boardStatuses={boardStatuses?.length ? boardStatuses : TASK_STATUSES}
+        onSelectTask={handleEdit}
+        onCreateTask={handleCreate}
+        onSwitchView={setViewMode}
+        onOpenSettings={onSettings || (() => {})}
+        onOpenStandup={() => setStandupOpen(true)}
+        onForceRefresh={handleForceRefresh}
+        onCloudSync={syncToCloud}
+        onToggleTheme={() => setTheme(theme === 'dark' ? 'light' : 'dark')}
+        onFilterProject={(pid) => setFilterProjects([pid])}
+        onFilterStatus={(sid) => setFilterStatus([sid])}
+        theme={theme}
+      />
+
+      {/* ── Standup & Insights Modal ────────────────────────────────────────── */}
+      <StandupInsightsModal
+        open={standupOpen}
+        onClose={() => setStandupOpen(false)}
+        tasks={issues}
+        projects={projects}
+        projectOverrides={projectOverrides}
+        customStatuses={customStatuses}
+        boardStatuses={boardStatuses?.length ? boardStatuses : TASK_STATUSES}
+        currentUser={currentUser}
+        onSelectTask={handleEdit}
+      />
     </div>
   );
 }
