@@ -1,14 +1,129 @@
 import { create } from 'zustand';
-import { storage, applyTheme, getSystemTheme } from '../lib/utils.js';
-import { localStore, applyAccentColor } from '../lib/localStore.js';
+import { storage, applyTheme, getSystemTheme, type GlobalLabel } from '../lib/utils';
+import { localStore, applyAccentColor, type AppSettings, type ProjectOverride, type TemplateItem, type GlobalLabelDef } from '../lib/localStore';
 import {
   validateConnection, fetchAllProjects, fetchAllIssues,
   fetchProjectLabels, fetchProjectMembers,
   createIssue, updateIssue, deleteIssue, closeIssue, reopenIssue, createLabel,
   uploadProjectFile,
-} from '../services/gitlabApi.js';
+} from '../services/gitlabApi';
 
-const useStore = create((set, get) => ({
+export interface StoreState {
+  // Theme
+  theme: string;
+  initTheme: () => void;
+  setTheme: (theme: string) => void;
+
+  // Settings
+  appSettings: AppSettings;
+  updateAppSettings: (patch: Partial<AppSettings>) => void;
+
+  // Project Overrides
+  projectOverrides: Record<string, ProjectOverride>;
+  updateProjectOverride: (projectId: string | number, patch: Partial<ProjectOverride>) => void;
+  getProjectDisplayName: (project: any) => string;
+  isProjectEnabled: (projectId: string | number) => boolean;
+
+  // Description Templates
+  templates: TemplateItem[];
+  updateTemplates: (templates: TemplateItem[]) => void;
+  resetTemplates: () => void;
+
+  // Global Labels
+  globalLabels: GlobalLabelDef[];
+  addGlobalLabel: (newLabel: { name: string; color?: string; description?: string }) => GlobalLabelDef;
+  updateGlobalLabel: (id: string, patch: Partial<GlobalLabelDef>) => void;
+  deleteGlobalLabel: (id: string) => void;
+  resetGlobalLabels: () => void;
+
+  // Auth
+  instanceUrl: string;
+  token: string;
+  currentUser: any;
+  isAuthenticated: boolean;
+  authError: string | null;
+  loadSettings: () => Promise<void>;
+  saveSettings: (instanceUrl: string, token: string) => Promise<{ success: boolean; user?: any; error?: string }>;
+  testConnection: (instanceUrl: string, token: string, options?: { silent?: boolean }) => Promise<{ success: boolean; user?: any; error?: string }>;
+  logout: () => Promise<void>;
+
+  // Projects
+  projects: any[];
+  projectsLoading: boolean;
+  projectsError: string | null;
+  fetchProjects: (options?: { force?: boolean }) => Promise<any[]>;
+  readonly enabledProjects: any[];
+
+  // Issues
+  issues: any[];
+  issuesLoading: boolean;
+  issuesError: string | null;
+  loadingProgress: number;
+  lastFetchedAt: number | null;
+  initializeData: () => Promise<void>;
+  refreshAll: () => Promise<void>;
+  fetchAllIssues: (projectIds: Array<string | number>, options?: { force?: boolean }) => Promise<void>;
+
+  _updateIssueInStore: (projectId: string | number, issueIid: string | number, updater: (i: any) => any) => void;
+  _addIssueToStore: (issue: any) => void;
+  _removeIssueFromStore: (projectId: string | number, issueIid: string | number) => void;
+
+  // Task CRUD
+  createTask: (projectId: string | number, payload: any) => Promise<any>;
+  uploadFileToProject: (projectId: string | number, file: File) => Promise<any>;
+  updateTask: (projectId: string | number, issueIid: string | number, payload: any) => Promise<any>;
+  moveTask: (oldProjectId: string | number, issueIid: string | number, newProjectId: string | number) => Promise<any>;
+  deleteTask: (projectId: string | number, issueIid: string | number) => Promise<void>;
+  toggleTaskState: (projectId: string | number, issueIid: string | number, currentState: string) => Promise<void>;
+  bulkCloseIssues: (items: Array<{ projectId: string | number; issueIid: string | number; state: string }>) => Promise<void>;
+  bulkAssignToMe: (items: Array<{ projectId: string | number; issueIid: string | number }>) => Promise<void>;
+  bulkReopenIssues: (items: Array<{ projectId: string | number; issueIid: string | number }>) => Promise<void>;
+
+  // Labels
+  labelsByProject: Record<string, any[]>;
+  labelsLoading: boolean;
+  fetchLabelsForProject: (projectId: string | number) => Promise<any[]>;
+  createProjectLabel: (projectId: string | number, payload: { name: string; color: string }) => Promise<any>;
+  toggleIssueGlobalLabel: (issue: any, globalLabel: GlobalLabelDef | GlobalLabel) => Promise<void>;
+  batchUpdateIssueGlobalLabels: (issue: any, nextLabels: any[]) => Promise<void>;
+
+  // Members
+  membersByProject: Record<string, any[]>;
+  fetchMembersForProject: (projectId: string | number) => Promise<any[]>;
+
+  // Custom Statuses
+  customStatuses: Record<string, string>;
+  setTaskStatus: (projectId: string | number, iid: string | number, newStatus: string) => Promise<void>;
+
+  // Pinned Tasks
+  pinnedKeys: Set<string>;
+  togglePin: (projectId: string | number, iid: string | number) => void;
+  isPinned: (projectId: string | number, iid: string | number) => boolean;
+
+  // Version Check
+  latestVersion: string | null;
+  updateAvailable: boolean;
+  checkForUpdate: () => Promise<void>;
+
+  // UI State
+  activeView: string;
+  setActiveView: (v: string) => void;
+  viewMode: string;
+  setViewMode: (v: string) => void;
+  globalFilter: string;
+  setGlobalFilter: (v: string) => void;
+  filterProjects: string[];
+  setFilterProjects: (arr: string[]) => void;
+  filterStatus: string[];
+  setFilterStatus: (v: string | string[]) => void;
+  filterLabels: string[];
+  setFilterLabels: (arr: string[]) => void;
+  assignedToMe: boolean;
+  setAssignedToMe: (v: boolean) => void;
+  _persistFilters: (patch: Record<string, any>) => void;
+}
+
+const useStore = create<StoreState>((set, get) => ({
   // ── Theme ──────────────────────────────────────────────────────────────────
   theme: 'dark',
   initTheme() {
@@ -20,7 +135,7 @@ const useStore = create((set, get) => ({
       if (get().theme === 'system') applyTheme(getSystemTheme());
     });
   },
-  setTheme(theme) {
+  setTheme(theme: string) {
     localStorage.setItem('gtm_theme', theme);
     applyTheme(theme === 'system' ? getSystemTheme() : theme);
     set({ theme });
@@ -28,21 +143,48 @@ const useStore = create((set, get) => ({
 
   // ── App Settings (stored in localStore) ───────────────────────────────────
   appSettings: localStore.getSettings(),
-  updateAppSettings(patch) {
+  updateAppSettings(patch: Partial<AppSettings>) {
     if (patch.accentColor) applyAccentColor(patch.accentColor);
     const updated = localStore.updateSettings(patch);
     set({ appSettings: updated });
   },
 
+  // ── Project Overrides (custom names + enabled/disabled) ───────────────────
+  projectOverrides: localStore.getProjectOverrides(),
+  updateProjectOverride(projectId: string | number, patch: Partial<ProjectOverride>) {
+    const map = localStore.updateProjectOverride(projectId, patch);
+    set({ projectOverrides: { ...map } });
+  },
+  getProjectDisplayName(project: any): string {
+    if (!project) return '';
+    const override = get().projectOverrides[String(project.id)];
+    return override?.customName || project.name;
+  },
+  isProjectEnabled(projectId: string | number): boolean {
+    const override = get().projectOverrides[String(projectId)];
+    return override?.enabled !== false; // default: enabled
+  },
+
+  // ── Description Templates ─────────────────────────────────────────────────
+  templates: localStore.getTemplates(),
+  updateTemplates(templates: TemplateItem[]) {
+    localStore.setTemplates(templates);
+    set({ templates });
+  },
+  resetTemplates() {
+    const defaults = localStore.resetTemplates();
+    set({ templates: defaults });
+  },
+
   // ── Global Labels (persisted across all projects) ─────────────────────────
   globalLabels: localStore.getGlobalLabels(),
-  addGlobalLabel(newLabel) {
+  addGlobalLabel(newLabel: { name: string; color?: string; description?: string }): GlobalLabelDef {
     const current = get().globalLabels;
     const name = newLabel.name.trim();
     if (current.some((l) => l.name.toLowerCase() === name.toLowerCase())) {
       throw new Error(`Label "${name}" already exists`);
     }
-    const created = {
+    const created: GlobalLabelDef = {
       id: `gl-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
       name,
       color: newLabel.color || '#3b82f6',
@@ -53,14 +195,14 @@ const useStore = create((set, get) => ({
     set({ globalLabels: updated });
     return created;
   },
-  updateGlobalLabel(id, patch) {
+  updateGlobalLabel(id: string, patch: Partial<GlobalLabelDef>) {
     const updated = get().globalLabels.map((l) =>
       l.id === id ? { ...l, ...patch } : l
     );
     localStore.setGlobalLabels(updated);
     set({ globalLabels: updated });
   },
-  deleteGlobalLabel(id) {
+  deleteGlobalLabel(id: string) {
     const updated = get().globalLabels.filter((l) => l.id !== id);
     localStore.setGlobalLabels(updated);
     set({ globalLabels: updated });
@@ -85,6 +227,8 @@ const useStore = create((set, get) => ({
     set({
       appSettings: settings,
       globalLabels: localStore.getGlobalLabels(),
+      projectOverrides: localStore.getProjectOverrides(),
+      templates: localStore.getTemplates(),
     });
 
     const result = await storage.get(['instanceUrl', 'token']);
@@ -95,19 +239,19 @@ const useStore = create((set, get) => ({
     }
   },
 
-  async saveSettings(instanceUrl, token) {
+  async saveSettings(instanceUrl: string, token: string) {
     await storage.set({ instanceUrl, token });
     set({ instanceUrl, token });
     return get().testConnection(instanceUrl, token);
   },
 
-  async testConnection(instanceUrl, token, { silent = false } = {}) {
+  async testConnection(instanceUrl: string, token: string, { silent = false } = {}) {
     if (!silent) set({ authError: null });
     try {
       const user = await validateConnection(instanceUrl, token);
       set({ currentUser: user, isAuthenticated: true, authError: null });
       return { success: true, user };
-    } catch (err) {
+    } catch (err: any) {
       set({ currentUser: null, isAuthenticated: false, authError: err.message });
       return { success: false, error: err.message };
     }
@@ -124,7 +268,7 @@ const useStore = create((set, get) => ({
   projectsLoading: false,
   projectsError: null,
 
-  async fetchProjects({ force = false } = {}) {
+  async fetchProjects({ force = false } = {}): Promise<any[]> {
     const { instanceUrl, token } = get();
     set({ projectsLoading: true, projectsError: null });
     try {
@@ -132,10 +276,19 @@ const useStore = create((set, get) => ({
       localStore.setProjects(projects);
       set({ projects, projectsLoading: false });
       return projects;
-    } catch (err) {
+    } catch (err: any) {
       set({ projectsError: err.message, projectsLoading: false });
       return [];
     }
+  },
+
+  // Get enabled projects (filtered by overrides)
+  get enabledProjects(): any[] {
+    const { projects, projectOverrides } = get();
+    return projects.filter((p) => {
+      const override = projectOverrides[String(p.id)];
+      return override?.enabled !== false;
+    });
   },
 
   // ── Issues — localStorage-first strategy ───────────────────────────────────
@@ -163,15 +316,31 @@ const useStore = create((set, get) => ({
     }
 
     const settings = localStore.getSettings();
+
+    // Load persistent filters if enabled
+    let filterState = {
+      filterProjects: settings.defaultFilterProjects || [],
+      filterStatus: Array.isArray(settings.defaultFilterStatus) ? settings.defaultFilterStatus : [],
+      filterLabels: settings.defaultFilterLabels || [],
+      assignedToMe: false,
+      globalFilter: '',
+    };
+    if (settings.persistFilters !== false) {
+      const saved = localStore.getActiveFilters();
+      if (saved) filterState = { ...filterState, ...saved };
+    }
+
     if (hasData && cachedProjects.length > 0) {
       // Use cached data — no API call
       set({
         projects: cachedProjects,
         issues: pruned,
         lastFetchedAt: localStore.getLastFetchedAt(),
-        filterProjects: settings.defaultFilterProjects || [],
-        filterStatus: Array.isArray(settings.defaultFilterStatus) ? settings.defaultFilterStatus : [],
-        filterLabels: settings.defaultFilterLabels || [],
+        filterProjects: filterState.filterProjects,
+        filterStatus: filterState.filterStatus,
+        filterLabels: filterState.filterLabels,
+        assignedToMe: filterState.assignedToMe || false,
+        globalFilter: filterState.globalFilter || '',
       });
       return;
     }
@@ -179,9 +348,11 @@ const useStore = create((set, get) => ({
     // First ever load → fetch fresh data
     await get().refreshAll();
     set({
-      filterProjects: settings.defaultFilterProjects || [],
-      filterStatus: Array.isArray(settings.defaultFilterStatus) ? settings.defaultFilterStatus : [],
-      filterLabels: settings.defaultFilterLabels || [],
+      filterProjects: filterState.filterProjects,
+      filterStatus: filterState.filterStatus,
+      filterLabels: filterState.filterLabels,
+      assignedToMe: filterState.assignedToMe || false,
+      globalFilter: filterState.globalFilter || '',
     });
   },
 
@@ -191,11 +362,17 @@ const useStore = create((set, get) => ({
   async refreshAll() {
     const projects = await get().fetchProjects({ force: true });
     if (projects.length > 0) {
-      await get().fetchAllIssues(projects.map((p) => p.id), { force: true });
+      const enabledIds = projects
+        .filter((p) => {
+          const override = get().projectOverrides[String(p.id)];
+          return override?.enabled !== false;
+        })
+        .map((p) => p.id);
+      await get().fetchAllIssues(enabledIds.length > 0 ? enabledIds : projects.map((p) => p.id), { force: true });
     }
   },
 
-  async fetchAllIssues(projectIds, { force = false } = {}) {
+  async fetchAllIssues(projectIds: Array<string | number>, { force = false } = {}) {
     const { instanceUrl, token } = get();
     set({ issuesLoading: true, issuesError: null, loadingProgress: 0 });
     try {
@@ -208,13 +385,13 @@ const useStore = create((set, get) => ({
       localStore.setIssues(pruned);
       localStore.setLastFetchedAt();
       set({ issues: pruned, issuesLoading: false, loadingProgress: 100, lastFetchedAt: Date.now() });
-    } catch (err) {
+    } catch (err: any) {
       set({ issuesError: err.message, issuesLoading: false });
     }
   },
 
   // ── Optimistic updates ─────────────────────────────────────────────────────
-  _updateIssueInStore(projectId, issueIid, updater) {
+  _updateIssueInStore(projectId: string | number, issueIid: string | number, updater: (i: any) => any) {
     set((s) => {
       const updated = s.issues.map((i) =>
         i.project_id === projectId && i.iid === issueIid ? updater(i) : i
@@ -224,7 +401,7 @@ const useStore = create((set, get) => ({
     });
   },
 
-  _addIssueToStore(issue) {
+  _addIssueToStore(issue: any) {
     set((s) => {
       const updated = [issue, ...s.issues];
       localStore.setIssues(updated);
@@ -232,7 +409,7 @@ const useStore = create((set, get) => ({
     });
   },
 
-  _removeIssueFromStore(projectId, issueIid) {
+  _removeIssueFromStore(projectId: string | number, issueIid: string | number) {
     set((s) => {
       const updated = s.issues.filter((i) => !(i.project_id === projectId && i.iid === issueIid));
       localStore.setIssues(updated);
@@ -241,7 +418,7 @@ const useStore = create((set, get) => ({
   },
 
   // ── Task CRUD ──────────────────────────────────────────────────────────────
-  async createTask(projectId, payload) {
+  async createTask(projectId: string | number, payload: any): Promise<any> {
     const { instanceUrl, token, currentUser, appSettings, globalLabels } = get();
     // Auto-assign if setting is on
     if (appSettings.autoAssignOnCreate && currentUser) {
@@ -251,7 +428,7 @@ const useStore = create((set, get) => ({
     // Ensure any selected global labels exist in the GitLab project
     if (payload.labels) {
       const labelNames = Array.isArray(payload.labels)
-        ? payload.labels.map((l) => (typeof l === 'string' ? l : l.name))
+        ? payload.labels.map((l: any) => (typeof l === 'string' ? l : l.name))
         : String(payload.labels).split(',').map((s) => s.trim()).filter(Boolean);
 
       try {
@@ -285,14 +462,14 @@ const useStore = create((set, get) => ({
     return issue;
   },
 
-  async uploadFileToProject(projectId, file) {
+  async uploadFileToProject(projectId: string | number, file: File): Promise<any> {
     const { instanceUrl, token, projects } = get();
     const currentProject = projects.find((p) => String(p.id) === String(projectId));
     const projectPath = currentProject?.path_with_namespace || currentProject?.name || '';
     return uploadProjectFile(instanceUrl, token, projectId, file, projectPath);
   },
 
-  async updateTask(projectId, issueIid, payload) {
+  async updateTask(projectId: string | number, issueIid: string | number, payload: any): Promise<any> {
     const { instanceUrl, token } = get();
     get()._updateIssueInStore(projectId, issueIid, (i) => ({ ...i, ...payload }));
     try {
@@ -305,7 +482,34 @@ const useStore = create((set, get) => ({
     }
   },
 
-  async deleteTask(projectId, issueIid) {
+  // Move task to a different project (create in new, delete from old)
+  async moveTask(oldProjectId: string | number, issueIid: string | number, newProjectId: string | number): Promise<any> {
+    const { issues } = get();
+    const issue = issues.find((i) => i.project_id === oldProjectId && i.iid === issueIid);
+    if (!issue) throw new Error('Issue not found');
+
+    // Create in new project
+    const payload = {
+      title: issue.title,
+      description: issue.description || '',
+      due_date: issue.due_date || null,
+      labels: (issue.labels || []).map((l: any) => (typeof l === 'string' ? l : l.name)).join(','),
+      assignee_ids: (issue.assignees || []).map((a: any) => a.id),
+    };
+    const { instanceUrl, token } = get();
+    const newIssue = await createIssue(instanceUrl, token, newProjectId, payload);
+    get()._addIssueToStore(newIssue);
+
+    // Close/delete the old one
+    try {
+      await closeIssue(instanceUrl, token, oldProjectId, issueIid);
+    } catch {}
+    get()._removeIssueFromStore(oldProjectId, issueIid);
+
+    return newIssue;
+  },
+
+  async deleteTask(projectId: string | number, issueIid: string | number): Promise<void> {
     const { instanceUrl, token } = get();
     get()._removeIssueFromStore(projectId, issueIid);
     localStore.deleteCustomStatus(projectId, issueIid);
@@ -316,7 +520,7 @@ const useStore = create((set, get) => ({
     catch (err) { await get().initializeData(); throw err; }
   },
 
-  async toggleTaskState(projectId, issueIid, currentState) {
+  async toggleTaskState(projectId: string | number, issueIid: string | number, currentState: string): Promise<void> {
     const { instanceUrl, token } = get();
     get()._updateIssueInStore(projectId, issueIid, (i) => ({
       ...i, state: currentState === 'opened' ? 'closed' : 'opened',
@@ -337,7 +541,7 @@ const useStore = create((set, get) => ({
   },
 
   // Bulk close
-  async bulkCloseIssues(items) {
+  async bulkCloseIssues(items: Array<{ projectId: string | number; issueIid: string | number; state: string }>): Promise<void> {
     const { instanceUrl, token } = get();
     await Promise.allSettled(
       items.map(({ projectId, issueIid, state }) =>
@@ -352,7 +556,7 @@ const useStore = create((set, get) => ({
   },
 
   // Bulk assign to current user
-  async bulkAssignToMe(items) {
+  async bulkAssignToMe(items: Array<{ projectId: string | number; issueIid: string | number }>): Promise<void> {
     const { instanceUrl, token, currentUser } = get();
     if (!currentUser) return;
     await Promise.allSettled(
@@ -368,29 +572,42 @@ const useStore = create((set, get) => ({
     });
   },
 
+  // Bulk reopen
+  async bulkReopenIssues(items: Array<{ projectId: string | number; issueIid: string | number }>): Promise<void> {
+    const { instanceUrl, token } = get();
+    await Promise.allSettled(
+      items.map(({ projectId, issueIid }) =>
+        reopenIssue(instanceUrl, token, projectId, issueIid)
+      )
+    );
+    items.forEach(({ projectId, issueIid }) => {
+      get()._updateIssueInStore(projectId, issueIid, (i) => ({ ...i, state: 'opened' }));
+    });
+  },
+
   // ── Labels ─────────────────────────────────────────────────────────────────
   labelsByProject: {},
   labelsLoading: false,
 
-  async fetchLabelsForProject(projectId) {
-    if (get().labelsByProject[projectId]) return get().labelsByProject[projectId];
+  async fetchLabelsForProject(projectId: string | number): Promise<any[]> {
+    if (get().labelsByProject[String(projectId)]) return get().labelsByProject[String(projectId)];
     const { instanceUrl, token } = get();
     set({ labelsLoading: true });
     try {
       const labels = await fetchProjectLabels(instanceUrl, token, projectId);
-      set((s) => ({ labelsByProject: { ...s.labelsByProject, [projectId]: labels }, labelsLoading: false }));
+      set((s) => ({ labelsByProject: { ...s.labelsByProject, [String(projectId)]: labels }, labelsLoading: false }));
       return labels;
     } catch { set({ labelsLoading: false }); return []; }
   },
 
-  async createProjectLabel(projectId, payload) {
+  async createProjectLabel(projectId: string | number, payload: { name: string; color: string }): Promise<any> {
     const { instanceUrl, token } = get();
     try {
       const label = await createLabel(instanceUrl, token, projectId, payload);
       set((s) => ({
         labelsByProject: {
           ...s.labelsByProject,
-          [projectId]: [...(s.labelsByProject[projectId] || []), label],
+          [String(projectId)]: [...(s.labelsByProject[String(projectId)] || []), label],
         },
       }));
       return label;
@@ -407,20 +624,20 @@ const useStore = create((set, get) => ({
    *   1. Checks if project has label in GitLab; if not, creates it in project!
    *   2. Assigns label to issue on GitLab and locally.
    */
-  async toggleIssueGlobalLabel(issue, globalLabel) {
+  async toggleIssueGlobalLabel(issue: any, globalLabel: GlobalLabelDef | GlobalLabel): Promise<void> {
     const { instanceUrl, token } = get();
     const projectId = issue.project_id;
     const issueIid  = issue.iid;
 
     const rawLabels = issue.labels || [];
-    const hasLabel = rawLabels.some((l) => {
+    const hasLabel = rawLabels.some((l: any) => {
       const name = typeof l === 'string' ? l : l?.name;
       return name?.toLowerCase() === globalLabel.name.toLowerCase();
     });
 
     if (hasLabel) {
       // ── REMOVE ──
-      const newLabels = rawLabels.filter((l) => {
+      const newLabels = rawLabels.filter((l: any) => {
         const name = typeof l === 'string' ? l : l?.name;
         return name?.toLowerCase() !== globalLabel.name.toLowerCase();
       });
@@ -441,12 +658,12 @@ const useStore = create((set, get) => ({
       try {
         const projectLabels = await get().fetchLabelsForProject(projectId);
         const existsInProject = projectLabels.some(
-          (pl) => pl.name.toLowerCase() === globalLabel.name.toLowerCase()
+          (pl: any) => pl.name.toLowerCase() === globalLabel.name.toLowerCase()
         );
         if (!existsInProject) {
           await get().createProjectLabel(projectId, {
             name: globalLabel.name,
-            color: globalLabel.color,
+            color: globalLabel.color || '#3b82f6',
           });
         }
       } catch (err) {
@@ -471,7 +688,7 @@ const useStore = create((set, get) => ({
   },
 
   // ── Batch Label Update (updates after label popover closes) ────────────────
-  async batchUpdateIssueGlobalLabels(issue, nextLabels) {
+  async batchUpdateIssueGlobalLabels(issue: any, nextLabels: any[]): Promise<void> {
     const { instanceUrl, token } = get();
     const projectId = issue.project_id;
     const issueIid  = issue.iid;
@@ -481,7 +698,7 @@ const useStore = create((set, get) => ({
       // Ensure all selected global labels exist in this project on GitLab
       for (const gl of nextLabels) {
         const pLabels = await get().fetchLabelsForProject(projectId);
-        const exists = pLabels.some((l) => l.name.toLowerCase() === gl.name.toLowerCase());
+        const exists = pLabels.some((l: any) => l.name.toLowerCase() === gl.name.toLowerCase());
         if (!exists) {
           await get().createProjectLabel(projectId, { name: gl.name, color: gl.color });
         }
@@ -489,13 +706,13 @@ const useStore = create((set, get) => ({
 
       // Preserve non-global labels on the issue
       const rawLabels = issue.labels || [];
-      const nonGlobalLabels = rawLabels.filter((l) => {
+      const nonGlobalLabels = rawLabels.filter((l: any) => {
         const name = typeof l === 'string' ? l : l?.name;
         return !allGlobal.some((g) => g.name.toLowerCase() === name?.toLowerCase());
       });
 
       const finalLabels = [...nonGlobalLabels, ...nextLabels];
-      const labelNames  = finalLabels.map((l) => (typeof l === 'string' ? l : l.name)).join(',');
+      const labelNames  = finalLabels.map((l: any) => (typeof l === 'string' ? l : l.name)).join(',');
 
       await updateIssue(instanceUrl, token, projectId, issueIid, { labels: labelNames });
 
@@ -513,12 +730,12 @@ const useStore = create((set, get) => ({
   // ── Members ────────────────────────────────────────────────────────────────
   membersByProject: {},
 
-  async fetchMembersForProject(projectId) {
-    if (get().membersByProject[projectId]) return get().membersByProject[projectId];
+  async fetchMembersForProject(projectId: string | number): Promise<any[]> {
+    if (get().membersByProject[String(projectId)]) return get().membersByProject[String(projectId)];
     const { instanceUrl, token } = get();
     try {
       const members = await fetchProjectMembers(instanceUrl, token, projectId);
-      set((s) => ({ membersByProject: { ...s.membersByProject, [projectId]: members } }));
+      set((s) => ({ membersByProject: { ...s.membersByProject, [String(projectId)]: members } }));
       return members;
     } catch { return []; }
   },
@@ -526,7 +743,7 @@ const useStore = create((set, get) => ({
   // ── Custom Statuses (open & close sync with GitLab; others local) ───────────
   customStatuses: localStore.getCustomStatuses(),
 
-  async setTaskStatus(projectId, iid, newStatus) {
+  async setTaskStatus(projectId: string | number, iid: string | number, newStatus: string): Promise<void> {
     const { instanceUrl, token, issues } = get();
     const map = localStore.setCustomStatus(projectId, iid, newStatus);
     set({ customStatuses: { ...map } });
@@ -570,30 +787,110 @@ const useStore = create((set, get) => ({
   // ── Pinned Tasks ───────────────────────────────────────────────────────────
   pinnedKeys: localStore.getPinned(), // Set of "projectId_iid"
 
-  togglePin(projectId, iid) {
+  togglePin(projectId: string | number, iid: string | number) {
     const pinned = localStore.togglePin(projectId, iid);
     set({ pinnedKeys: new Set(pinned) });
   },
-  isPinned: (projectId, iid) => get().pinnedKeys.has(`${projectId}_${iid}`),
+  isPinned: (projectId: string | number, iid: string | number): boolean => get().pinnedKeys.has(`${projectId}_${iid}`),
+
+  // ── Version Check ──────────────────────────────────────────────────────────
+  latestVersion: localStore.getLatestVersion(),
+  updateAvailable: false,
+
+  async checkForUpdate(): Promise<void> {
+    const { appSettings } = get();
+    const repo = appSettings.githubRepo || 'Shariar-Hasan/gitlab-task-management';
+    const lastCheck = localStore.getLastUpdateCheck();
+    const hours = appSettings.updateCheckHours || 24;
+    const msThreshold = hours * 60 * 60 * 1000;
+
+    // Throttle checks
+    if (lastCheck && Date.now() - lastCheck < msThreshold) {
+      // Check if already known update available
+      const currentVersion = '1.1.0'; // from manifest
+      const latest = localStore.getLatestVersion();
+      if (latest) {
+        const updateAvailable = isNewerVersion(latest, currentVersion);
+        set({ latestVersion: latest, updateAvailable });
+      }
+      return;
+    }
+
+    try {
+      const res = await fetch(`https://api.github.com/repos/${repo}/releases/latest`);
+      if (!res.ok) return;
+      const data = await res.json();
+      const tag = (data.tag_name || '').replace(/^v/, '');
+      const currentVersion = '1.1.0';
+      const updateAvailable = isNewerVersion(tag, currentVersion);
+      localStore.setLatestVersion(tag);
+      localStore.setLastUpdateCheck();
+      set({ latestVersion: tag, updateAvailable });
+    } catch (e) {
+      console.warn('Version check failed:', e);
+    }
+  },
 
   // ── UI State ───────────────────────────────────────────────────────────────
   activeView: 'dashboard',
-  setActiveView: (v) => set({ activeView: v }),
+  setActiveView: (v: string) => set({ activeView: v }),
+
+  viewMode: localStore.getSettings()?.viewMode || 'table', // 'table' | 'board'
+  setViewMode: (v: string) => {
+    set({ viewMode: v });
+    localStore.updateSettings({ viewMode: v });
+  },
 
   globalFilter: '',
-  setGlobalFilter: (v) => set({ globalFilter: v }),
+  setGlobalFilter: (v: string) => {
+    set({ globalFilter: v });
+    get()._persistFilters({ globalFilter: v });
+  },
 
   // Multi-select filters
   filterProjects: localStore.getSettings()?.defaultFilterProjects || [],
-  setFilterProjects: (arr) => set({ filterProjects: arr || [] }),
+  setFilterProjects: (arr: string[]) => {
+    set({ filterProjects: arr || [] });
+    get()._persistFilters({ filterProjects: arr || [] });
+  },
 
   filterStatus: Array.isArray(localStore.getSettings()?.defaultFilterStatus) ? localStore.getSettings().defaultFilterStatus : [],
-  setFilterStatus: (v) => set({
-    filterStatus: Array.isArray(v) ? v : (v && v !== 'all' ? [v] : [])
-  }),
+  setFilterStatus: (v: string | string[]) => {
+    const val = Array.isArray(v) ? v : (v && v !== 'all' ? [v] : []);
+    set({ filterStatus: val });
+    get()._persistFilters({ filterStatus: val });
+  },
 
   filterLabels: localStore.getSettings()?.defaultFilterLabels || [],
-  setFilterLabels: (arr) => set({ filterLabels: arr || [] }),
+  setFilterLabels: (arr: string[]) => {
+    set({ filterLabels: arr || [] });
+    get()._persistFilters({ filterLabels: arr || [] });
+  },
+
+  assignedToMe: false,
+  setAssignedToMe: (v: boolean) => {
+    set({ assignedToMe: v });
+    get()._persistFilters({ assignedToMe: v });
+  },
+
+  // Persist active filters to localStorage
+  _persistFilters(patch: Record<string, any>) {
+    const settings = localStore.getSettings();
+    if (settings.persistFilters === false) return;
+    const current = localStore.getActiveFilters();
+    localStore.setActiveFilters({ ...current, ...patch });
+  },
 }));
+
+// Helper: compare semver strings
+function isNewerVersion(latest: string, current: string): boolean {
+  if (!latest || !current) return false;
+  const parse = (v: string) => v.replace(/^v/, '').split('.').map(Number);
+  const [lMaj, lMin, lPatch] = parse(latest);
+  const [cMaj, cMin, cPatch] = parse(current);
+  if (lMaj !== cMaj) return lMaj > cMaj;
+  if (lMin !== cMin) return lMin > cMin;
+  return (lPatch || 0) > (cPatch || 0);
+}
 
 export default useStore;

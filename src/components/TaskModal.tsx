@@ -1,14 +1,20 @@
 import React, { useState, useEffect } from 'react';
 import { Plus, X, Tag, Check, Calendar, FolderGit2, CircleDot, User, Loader2 } from 'lucide-react';
-import { Modal, ModalHeader, ModalBody, ModalFooter } from './ui/overlay.jsx';
-import { Button, Input, Label, Select, Badge } from './ui/index.jsx';
-import MarkdownEditor from './ui/MarkdownEditor.jsx';
-import { useToast } from './ui/overlay.jsx';
-import useStore from '../store/useStore.js';
-import { cn, getVisibleGlobalLabels, getDueDateInfo, getDueDateBadgeClass } from '../lib/utils.js';
-import { TASK_STATUSES, getEffectiveStatus } from '../lib/localStore.js';
+import { Modal, ModalHeader, ModalBody, ModalFooter } from './ui/overlay';
+import { Button, Input, Label, Select } from './ui/index';
+import MarkdownEditor from './ui/MarkdownEditor';
+import { useToast } from './ui/overlay';
+import useStore from '../store/useStore';
+import { cn, getVisibleGlobalLabels, getDueDateInfo, getDueDateBadgeClass } from '../lib/utils';
+import { TASK_STATUSES, getEffectiveStatus } from '../lib/localStore';
 
-export default function TaskModal({ open, onClose, editIssue = null }) {
+export interface TaskModalProps {
+  open: boolean;
+  onClose: () => void;
+  editIssue?: any;
+}
+
+export default function TaskModal({ open, onClose, editIssue = null }: TaskModalProps) {
   const {
     projects, createTask, updateTask, globalLabels,
     customStatuses, setTaskStatus, fetchMembersForProject,
@@ -17,7 +23,15 @@ export default function TaskModal({ open, onClose, editIssue = null }) {
   const toast = useToast();
   const isEditing = !!editIssue;
 
-  const [form, setForm] = useState({
+  const [form, setForm] = useState<{
+    title: string;
+    description: string;
+    project_id: string;
+    due_date: string;
+    status: string;
+    assignee_id: string;
+    labels: any[];
+  }>({
     title: '',
     description: '',
     project_id: '',
@@ -27,7 +41,7 @@ export default function TaskModal({ open, onClose, editIssue = null }) {
     labels: [],
   });
 
-  const [members, setMembers] = useState([]);
+  const [members, setMembers] = useState<any[]>([]);
   const [submitting, setSubmitting] = useState(false);
   const [showAddLabel, setShowAddLabel] = useState(false);
   const [newLabelName, setNewLabelName] = useState('');
@@ -79,15 +93,15 @@ export default function TaskModal({ open, onClose, editIssue = null }) {
     }
   }, [form.project_id, fetchMembersForProject]);
 
-  const setField = (field, value) => setForm((p) => ({ ...p, [field]: value }));
+  const setField = (field: string, value: any) => setForm((p) => ({ ...p, [field]: value }));
 
-  const setPresetDueDate = (days) => {
+  const setPresetDueDate = (days: number) => {
     const d = new Date();
     d.setDate(d.getDate() + days);
     setField('due_date', d.toISOString().split('T')[0]);
   };
 
-  const toggleLabel = (label) => {
+  const toggleLabel = (label: any) => {
     const isSelected = form.labels.some((l) => l.name.toLowerCase() === label.name.toLowerCase());
     if (isSelected) {
       setField('labels', form.labels.filter((l) => l.name.toLowerCase() !== label.name.toLowerCase()));
@@ -104,7 +118,7 @@ export default function TaskModal({ open, onClose, editIssue = null }) {
       setNewLabelName('');
       setShowAddLabel(false);
       toast({ type: 'success', message: `✓ Tag "${created.name}" created` });
-    } catch (err) {
+    } catch (err: any) {
       toast({ type: 'error', message: err.message });
     }
   };
@@ -113,7 +127,7 @@ export default function TaskModal({ open, onClose, editIssue = null }) {
     if (!form.title.trim() || (!isEditing && !form.project_id)) return;
     setSubmitting(true);
 
-    const payload = {
+    const payload: any = {
       title: form.title.trim(),
       description: form.description.trim(),
       due_date: form.due_date || null,
@@ -136,7 +150,7 @@ export default function TaskModal({ open, onClose, editIssue = null }) {
         toast({ type: 'success', message: '✓ Task created successfully' });
       }
       onClose();
-    } catch (err) {
+    } catch (err: any) {
       toast({ type: 'error', message: err.message });
     } finally {
       setSubmitting(false);
@@ -151,7 +165,7 @@ export default function TaskModal({ open, onClose, editIssue = null }) {
     <Modal open={open} onClose={onClose} size="2xl">
       <ModalHeader onClose={onClose}>
         <div className="flex items-center gap-3">
-          <div className="h-9 w-9 rounded-xl bg-[var(--accent-muted)] border border-[var(--accent)]/30 flex items-center justify-center text-[var(--accent)] shadow-sm">
+          <div className="h-9 w-9 rounded-xl bg-[var(--accent-muted)] border border-[var(--accent)]/30 flex items-center justify-center text-[var(--accent)] shadow-xs">
             <Plus className="h-5 w-5" />
           </div>
           <div>
@@ -315,7 +329,7 @@ export default function TaskModal({ open, onClose, editIssue = null }) {
                 type="date"
                 value={form.due_date}
                 onChange={(e) => setField('due_date', e.target.value)}
-                onClick={(e) => { try { e.target.showPicker?.(); } catch {} }}
+                onClick={(e: any) => { try { e.target.showPicker?.(); } catch {} }}
                 className="[color-scheme:dark] cursor-pointer h-9 text-xs"
               />
               {dueInfo && (
@@ -366,7 +380,7 @@ export default function TaskModal({ open, onClose, editIssue = null }) {
                   className={cn(
                     'inline-flex items-center gap-2 px-3 py-1.5 rounded-xl text-xs font-medium border transition-all cursor-pointer select-none',
                     isSelected
-                      ? 'shadow-sm font-semibold'
+                      ? 'shadow-xs font-semibold'
                       : 'border-[var(--border)] bg-[var(--surface)] text-[var(--text-2)] hover:border-[var(--border-hover)] hover:text-[var(--text-1)]'
                   )}
                   style={
@@ -380,7 +394,7 @@ export default function TaskModal({ open, onClose, editIssue = null }) {
                   }
                 >
                   <span
-                    className="h-2.5 w-2.5 rounded-full shrink-0 shadow-sm"
+                    className="h-2.5 w-2.5 rounded-full shrink-0 shadow-xs"
                     style={{ backgroundColor: l.color }}
                   />
                   <span>{l.name}</span>
@@ -423,7 +437,7 @@ export default function TaskModal({ open, onClose, editIssue = null }) {
                   type="button"
                   onClick={handleCreateAndSelectLabel}
                   disabled={!newLabelName.trim()}
-                  className="h-7 px-2.5 rounded-lg bg-[var(--accent)] text-white text-xs font-medium hover:opacity-90 disabled:opacity-40 cursor-pointer shadow-sm"
+                  className="h-7 px-2.5 rounded-lg bg-[var(--accent)] text-white text-xs font-medium hover:opacity-90 disabled:opacity-40 cursor-pointer shadow-xs"
                 >
                   Add
                 </button>

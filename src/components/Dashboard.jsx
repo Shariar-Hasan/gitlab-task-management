@@ -2,17 +2,20 @@ import React, { useEffect, useState, useMemo } from 'react';
 import {
   GitBranch, Search, Plus, Filter, RefreshCw, Settings,
   AlertCircle, X, BarChart3, CheckCircle2, Clock, Circle,
-  FolderGit2, CircleDot, Tag,
+  FolderGit2, CircleDot, Tag, List, Kanban, User, Bell,
+  ExternalLink,
 } from 'lucide-react';
 import {
   Button, Input, Spinner, ProgressBar, Skeleton, Card,
   ThemeToggle, CacheStatus, FilterSelect,
 } from './ui/index.jsx';
 import TaskTable from './TaskTable.jsx';
+import BoardView from './BoardView.jsx';
 import TaskModal from './TaskModal.jsx';
 import useStore from '../store/useStore.js';
 import { cn } from '../lib/utils.js';
 import { TASK_STATUSES, getEffectiveStatus } from '../lib/localStore.js';
+import { useConfirm } from '../context/ConfirmContext.jsx';
 
 // ── Stat Card ─────────────────────────────────────────────────────────────────
 function StatCard({ label, value, icon: Icon, colorClass, loading }) {
@@ -34,13 +37,15 @@ function StatCard({ label, value, icon: Icon, colorClass, loading }) {
 // ── Dashboard ─────────────────────────────────────────────────────────────────
 export default function Dashboard({ onSettings }) {
   const {
-    projects, issues, issuesLoading, issuesError, projectsLoading,
+    projects, projectOverrides, issues, issuesLoading, issuesError, projectsLoading,
     loadingProgress, currentUser, lastFetchedAt,
-    globalFilter, filterProjects, filterStatus, filterLabels,
-    setGlobalFilter, setFilterProjects, setFilterStatus, setFilterLabels,
+    globalFilter, filterProjects, filterStatus, filterLabels, assignedToMe,
+    setGlobalFilter, setFilterProjects, setFilterStatus, setFilterLabels, setAssignedToMe,
     initializeData, refreshAll, globalLabels, appSettings, customStatuses,
+    viewMode, setViewMode, updateAvailable, latestVersion, checkForUpdate,
   } = useStore();
 
+  const confirm = useConfirm();
   const [modalOpen, setModalOpen] = useState(false);
   const [editIssue, setEditIssue] = useState(null);
   const [initialized, setInitialized] = useState(false);
@@ -50,14 +55,36 @@ export default function Dashboard({ onSettings }) {
   useEffect(() => {
     if (initialized) return;
     setInitialized(true);
-    initializeData();
-  }, [initialized, initializeData]);
+    initializeData().then(() => {
+      // Check for updates after data loads
+      checkForUpdate?.().catch(() => { });
+    });
+  }, [initialized, initializeData, checkForUpdate]);
 
-  const handleEdit   = (issue) => { setEditIssue(issue); setModalOpen(true); };
+  const handleEdit = (issue) => { setEditIssue(issue); setModalOpen(true); };
   const handleCreate = () => { setEditIssue(null); setModalOpen(true); };
-  const handleClose  = () => { setModalOpen(false); setEditIssue(null); };
+  const handleClose = () => { setModalOpen(false); setEditIssue(null); };
 
   const handleForceRefresh = async () => {
+    const { result } = await confirm({
+      title: 'Force Reload from GitLab?',
+      description: (
+        <div className="space-y-2 text-xs text-[var(--text-2)]">
+          <p>This will <strong>discard your cached data</strong> and re-fetch everything from GitLab API. Here's what will happen:</p>
+          <ul className="list-disc pl-4 space-y-1 text-[var(--text-3)]">
+            <li>All local task cache will be cleared</li>
+            <li>All projects and issues will be re-fetched from the API</li>
+            <li>This may take a few seconds depending on the number of projects</li>
+            <li>Your settings, labels, and pinned tasks are preserved</li>
+          </ul>
+          <p className="text-amber-500/80 font-medium">Only do this if your data seems out of date.</p>
+        </div>
+      ),
+      confirmButtonText: 'Yes, Reload from GitLab',
+      cancelButtonText: 'Cancel',
+      danger: false,
+    });
+    if (!result) return;
     setRefreshing(true);
     await refreshAll();
     setRefreshing(false);
@@ -81,6 +108,14 @@ export default function Dashboard({ onSettings }) {
     return { total: issues.length, open, closed, overdue };
   }, [issues, customStatuses]);
 
+  // Only enabled projects for filter
+  const enabledProjects = useMemo(() => {
+    return projects.filter((p) => {
+      const override = projectOverrides?.[String(p.id)];
+      return override?.enabled !== false;
+    });
+  }, [projects, projectOverrides]);
+
   // Only global labels for filter dropdown (discards extra GitLab labels)
   const allLabels = useMemo(() => {
     return globalLabels || [];
@@ -88,11 +123,13 @@ export default function Dashboard({ onSettings }) {
 
   // Options for modern FilterSelect components (with project images)
   const projectOptions = useMemo(() => {
-    return projects.map((p) => {
+    return enabledProjects.map((p) => {
+      const override = projectOverrides?.[String(p.id)];
+      const displayName = override?.customName || p.name;
       const hue = (p.id * 137) % 360;
       return {
         value: String(p.id),
-        label: p.name,
+        label: displayName,
         subtitle: p.path_with_namespace,
         icon: (
           <div className="flex items-center shrink-0">
@@ -114,13 +151,13 @@ export default function Dashboard({ onSettings }) {
               )}
               style={{ background: `hsl(${hue}, 55%, 35%)` }}
             >
-              {p.name.charAt(0).toUpperCase()}
+              {displayName.charAt(0).toUpperCase()}
             </span>
           </div>
         ),
       };
     });
-  }, [projects]);
+  }, [enabledProjects, projectOverrides]);
 
   const statusOptions = useMemo(() => {
     return TASK_STATUSES.map((s) => ({
@@ -138,16 +175,38 @@ export default function Dashboard({ onSettings }) {
     }));
   }, [allLabels]);
 
-  const isLoading  = issuesLoading || projectsLoading;
+  const isLoading = issuesLoading || projectsLoading;
   const hasStatusFilter = Array.isArray(filterStatus) ? filterStatus.length > 0 : (filterStatus && filterStatus !== 'all');
-  const hasFilters = (filterProjects && filterProjects.length > 0) || hasStatusFilter || (filterLabels && filterLabels.length > 0) || globalFilter;
+  const hasFilters = (filterProjects && filterProjects.length > 0) || hasStatusFilter || (filterLabels && filterLabels.length > 0) || globalFilter || assignedToMe;
 
   const clearFilters = () => {
-    setGlobalFilter(''); setFilterProjects([]); setFilterStatus([]); setFilterLabels([]);
+    setGlobalFilter('');
+    setFilterProjects([]);
+    setFilterStatus([]);
+    setFilterLabels([]);
+    setAssignedToMe(false);
   };
 
   return (
     <div className="flex flex-col h-full bg-[var(--bg)] theme-transition">
+      {/* ── Update Banner ───────────────────────────────────────────────────── */}
+      {updateAvailable && (
+        <div className="shrink-0 flex items-center gap-2 px-5 py-2 bg-[var(--accent-muted)] border-b border-[var(--accent)]/30 animate-fade-in">
+          <Bell className="h-3.5 w-3.5 text-[var(--accent)] shrink-0" />
+          <span className="text-xs text-[var(--text-1)] flex-1">
+            <strong>Update available!</strong> Version {latestVersion} is out.
+          </span>
+          <a
+            href={`https://github.com/${appSettings?.githubRepo || 'Shariar-Hasan/gitlab-task-management'}/releases/latest`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex items-center gap-1 text-xs text-[var(--accent)] hover:underline font-medium"
+          >
+            View Release <ExternalLink className="h-3 w-3" />
+          </a>
+        </div>
+      )}
+
       {/* ── Header ─────────────────────────────────────────────────────────── */}
       <header className="shrink-0 border-b border-[var(--border)] px-5 py-3 bg-[var(--surface)] theme-transition">
         <div className="flex items-center gap-3">
@@ -187,12 +246,41 @@ export default function Dashboard({ onSettings }) {
           {/* Right actions */}
           <div className="flex items-center gap-1.5 ml-auto shrink-0">
             <CacheStatus lastFetchedAt={lastFetchedAt} />
+
+            {/* View Mode Toggle */}
+            <div className="flex items-center bg-[var(--surface-2)] border border-[var(--border)] rounded-lg p-0.5 gap-0.5">
+              <button
+                onClick={() => setViewMode('table')}
+                title="Table View"
+                className={cn(
+                  'flex items-center justify-center h-6 w-6 rounded-md transition-all cursor-pointer',
+                  viewMode !== 'board'
+                    ? 'bg-[var(--accent)] text-white shadow-sm'
+                    : 'text-[var(--text-3)] hover:text-[var(--text-1)]'
+                )}
+              >
+                <List className="h-3.5 w-3.5" />
+              </button>
+              <button
+                onClick={() => setViewMode('board')}
+                title="Board (Kanban) View"
+                className={cn(
+                  'flex items-center justify-center h-6 w-6 rounded-md transition-all cursor-pointer',
+                  viewMode === 'board'
+                    ? 'bg-[var(--accent)] text-white shadow-sm'
+                    : 'text-[var(--text-3)] hover:text-[var(--text-1)]'
+                )}
+              >
+                <Kanban className="h-3.5 w-3.5" />
+              </button>
+            </div>
+
             <ThemeToggle />
             <Button
               variant="ghost" size="icon-sm"
               onClick={handleForceRefresh}
               disabled={refreshing || isLoading}
-              title="Force refresh (bypass cache)"
+              title="Force refresh from GitLab"
             >
               <RefreshCw className={cn('h-4 w-4', (refreshing || isLoading) && 'animate-spin')} />
             </Button>
@@ -209,10 +297,10 @@ export default function Dashboard({ onSettings }) {
 
       {/* ── Stats Row ──────────────────────────────────────────────────────── */}
       <div className="shrink-0 grid grid-cols-4 gap-3 px-5 py-3 border-b border-[var(--border)]">
-        <StatCard label="Total"   value={stats.total}   icon={BarChart3}    colorClass="text-[var(--accent)]"  loading={isLoading && stats.total === 0} />
-        <StatCard label="Open"    value={stats.open}    icon={Circle}       colorClass="text-blue-500"          loading={isLoading && stats.total === 0} />
-        <StatCard label="Closed"  value={stats.closed}  icon={CheckCircle2} colorClass="text-emerald-500"       loading={isLoading && stats.total === 0} />
-        <StatCard label="Overdue" value={stats.overdue} icon={Clock}        colorClass="text-red-500"           loading={isLoading && stats.total === 0} />
+        <StatCard label="Total" value={stats.total} icon={BarChart3} colorClass="text-[var(--accent)]" loading={isLoading && stats.total === 0} />
+        <StatCard label="Open" value={stats.open} icon={Circle} colorClass="text-blue-500" loading={isLoading && stats.total === 0} />
+        <StatCard label="Closed" value={stats.closed} icon={CheckCircle2} colorClass="text-emerald-500" loading={isLoading && stats.total === 0} />
+        <StatCard label="Overdue" value={stats.overdue} icon={Clock} colorClass="text-red-500" loading={isLoading && stats.total === 0} />
       </div>
 
       {/* ── Filter Bar ─────────────────────────────────────────────────────── */}
@@ -265,6 +353,22 @@ export default function Dashboard({ onSettings }) {
           />
         )}
 
+        {/* Assigned to Me Filter */}
+        {currentUser && (
+          <button
+            onClick={() => setAssignedToMe(!assignedToMe)}
+            className={cn(
+              'inline-flex items-center gap-1.5 h-8 px-2.5 rounded-lg border text-xs font-medium transition-all cursor-pointer',
+              assignedToMe
+                ? 'border-[var(--accent)]/40 bg-[var(--accent-muted)] text-[var(--text-1)]'
+                : 'border-[var(--border)] bg-[var(--surface)] text-[var(--text-2)] hover:border-[var(--border-hover)] hover:text-[var(--text-1)]'
+            )}
+          >
+            <User className={cn('h-3.5 w-3.5 shrink-0', assignedToMe ? 'text-[var(--accent)]' : 'text-[var(--text-3)]')} />
+            <span className={assignedToMe ? 'font-semibold' : ''}>Assigned to Me</span>
+          </button>
+        )}
+
         {hasFilters && (
           <button
             onClick={clearFilters}
@@ -288,7 +392,7 @@ export default function Dashboard({ onSettings }) {
             </div>
           ) : (
             <span className="text-xs text-[var(--text-3)]">
-              {issues.length.toLocaleString()} tasks · {projects.length} projects · closed ≤30 days
+              {issues.length.toLocaleString()} tasks · {enabledProjects.length} projects · closed ≤30d
             </span>
           )}
         </div>
@@ -306,9 +410,13 @@ export default function Dashboard({ onSettings }) {
         </div>
       )}
 
-      {/* ── Table ──────────────────────────────────────────────────────────── */}
+      {/* ── Main Content (Table or Board) ───────────────────────────────────── */}
       <div className="flex-1 overflow-hidden">
-        <TaskTable onEdit={handleEdit} />
+        {viewMode === 'board' ? (
+          <BoardView onEdit={handleEdit} />
+        ) : (
+          <TaskTable onEdit={handleEdit} />
+        )}
       </div>
 
       <TaskModal open={modalOpen} onClose={handleClose} editIssue={editIssue} />

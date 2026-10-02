@@ -1,20 +1,21 @@
 // ── Class merger ─────────────────────────────────────────────────────────────
-import { clsx } from 'clsx';
+import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 
-export function cn(...inputs) {
+export function cn(...inputs: ClassValue[]): string {
   return twMerge(clsx(inputs));
 }
 
 // ── Chrome storage with localStorage fallback ─────────────────────────────────
+declare const chrome: any;
 const isExtension = typeof chrome !== 'undefined' && chrome?.storage?.sync;
 
 export const storage = {
-  get: (keys) => {
+  get: (keys: string | string[]): Promise<Record<string, any>> => {
     if (isExtension) {
       return new Promise((resolve) => chrome.storage.sync.get(keys, resolve));
     }
-    const result = {};
+    const result: Record<string, any> = {};
     const keyArray = Array.isArray(keys) ? keys : [keys];
     keyArray.forEach((k) => {
       const val = localStorage.getItem(`gtm_sync_${k}`);
@@ -24,7 +25,7 @@ export const storage = {
     });
     return Promise.resolve(result);
   },
-  set: (items) => {
+  set: (items: Record<string, any>): Promise<void> => {
     if (isExtension) {
       return new Promise((resolve) => chrome.storage.sync.set(items, resolve));
     }
@@ -39,7 +40,7 @@ export const storage = {
 const CACHE_VERSION = 'gtm_v1';
 
 export const sessionCache = {
-  get(key) {
+  get<T = any>(key: string): T | null {
     try {
       const raw = sessionStorage.getItem(`${CACHE_VERSION}_${key}`);
       if (!raw) return null;
@@ -48,13 +49,13 @@ export const sessionCache = {
         sessionStorage.removeItem(`${CACHE_VERSION}_${key}`);
         return null;
       }
-      return data;
+      return data as T;
     } catch {
       return null;
     }
   },
 
-  set(key, data, ttlMs = 5 * 60 * 1000) {
+  set(key: string, data: any, ttlMs: number = 5 * 60 * 1000): void {
     try {
       sessionStorage.setItem(
         `${CACHE_VERSION}_${key}`,
@@ -72,23 +73,25 @@ export const sessionCache = {
     }
   },
 
-  invalidate(key) {
+  invalidate(key: string): void {
     sessionStorage.removeItem(`${CACHE_VERSION}_${key}`);
   },
 
-  invalidateAll() {
+  invalidateAll(): void {
     Object.keys(sessionStorage)
       .filter((k) => k.startsWith(CACHE_VERSION))
       .forEach((k) => sessionStorage.removeItem(k));
   },
 
-  pruneExpired() {
+  pruneExpired(): void {
     const now = Date.now();
     Object.keys(sessionStorage)
       .filter((k) => k.startsWith(CACHE_VERSION))
       .forEach((k) => {
         try {
-          const { ts, ttl } = JSON.parse(sessionStorage.getItem(k));
+          const item = sessionStorage.getItem(k);
+          if (!item) return;
+          const { ts, ttl } = JSON.parse(item);
           if (now - ts > ttl) sessionStorage.removeItem(k);
         } catch {
           sessionStorage.removeItem(k);
@@ -97,12 +100,14 @@ export const sessionCache = {
   },
 
   /** Returns cache metadata for debugging / display */
-  stats() {
+  stats(): Array<{ key: string; ageMs: number; ttl: number; fresh: boolean }> {
     const keys = Object.keys(sessionStorage).filter((k) => k.startsWith(CACHE_VERSION));
     const now = Date.now();
     return keys.map((k) => {
       try {
-        const { ts, ttl } = JSON.parse(sessionStorage.getItem(k));
+        const item = sessionStorage.getItem(k);
+        if (!item) return { key: k, ageMs: Infinity, ttl: 0, fresh: false };
+        const { ts, ttl } = JSON.parse(item);
         const ageMs = now - ts;
         return { key: k.replace(`${CACHE_VERSION}_`, ''), ageMs, ttl, fresh: ageMs < ttl };
       } catch {
@@ -113,7 +118,24 @@ export const sessionCache = {
 };
 
 // ── Date & Time helpers ────────────────────────────────────────────────────────
-export function getDueDateInfo(dateString, settings = {}) {
+export interface DateSettings {
+  timeFormat?: 'relative' | 'absolute' | string;
+  dateFormat?: string;
+  clockFormat?: '12h' | '24h' | string;
+  [key: string]: any;
+}
+
+export interface DueDateInfo {
+  status: 'passed' | 'today' | 'upcoming';
+  diffDays: number;
+  text: string;
+  rawDate: string;
+  overdue: boolean;
+  today: boolean;
+  upcoming: boolean;
+}
+
+export function getDueDateInfo(dateString: string | null | undefined, settings: DateSettings = {}): DueDateInfo | null {
   if (!dateString) return null;
   const target = new Date(dateString);
   if (isNaN(target.getTime())) return null;
@@ -122,7 +144,7 @@ export function getDueDateInfo(dateString, settings = {}) {
   const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
   
   // Parse YYYY-MM-DD cleanly to avoid timezone shifting
-  let targetStart;
+  let targetStart: number;
   if (typeof dateString === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(dateString.trim())) {
     const [y, m, d] = dateString.trim().split('-').map(Number);
     targetStart = new Date(y, m - 1, d).getTime();
@@ -131,7 +153,7 @@ export function getDueDateInfo(dateString, settings = {}) {
   }
 
   const diffDays = Math.round((targetStart - startOfToday) / (1000 * 60 * 60 * 24));
-  let status = 'upcoming'; // default
+  let status: 'passed' | 'today' | 'upcoming' = 'upcoming'; // default
   if (diffDays < 0) status = 'passed';
   else if (diffDays === 0) status = 'today';
   else status = 'upcoming';
@@ -151,7 +173,7 @@ export function getDueDateInfo(dateString, settings = {}) {
   }
 
   return {
-    status, // 'passed' | 'today' | 'upcoming'
+    status,
     diffDays,
     text,
     rawDate: dateString,
@@ -161,7 +183,7 @@ export function getDueDateInfo(dateString, settings = {}) {
   };
 }
 
-function formatAbsoluteDate(date, dateFormat) {
+function formatAbsoluteDate(date: Date, dateFormat: string): string {
   if (dateFormat === 'yyyy-MM-dd') {
     return date.toISOString().split('T')[0];
   } else if (dateFormat === 'dd/MM/yyyy') {
@@ -173,7 +195,7 @@ function formatAbsoluteDate(date, dateFormat) {
   return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
 }
 
-export function getDueDateBadgeClass(status) {
+export function getDueDateBadgeClass(status?: string): string {
   switch (status) {
     case 'passed':
       return 'text-red-500 dark:text-red-400 bg-red-500/10 border-red-500/30 hover:bg-red-500/20';
@@ -186,8 +208,9 @@ export function getDueDateBadgeClass(status) {
   }
 }
 
-export function formatDate(dateString, settings = {}) {
-  const info = getDueDateInfo(dateString, settings);
+export function formatDate(dateString: string | Date | null | undefined, settings: DateSettings = {}) {
+  const str = dateString instanceof Date ? dateString.toISOString() : dateString;
+  const info = getDueDateInfo(str, settings);
   if (!info) return null;
   return {
     text: info.text,
@@ -199,7 +222,7 @@ export function formatDate(dateString, settings = {}) {
   };
 }
 
-export function formatTime(dateInput, clockFormat = '12h') {
+export function formatTime(dateInput: string | Date | null | undefined, clockFormat: string = '12h'): string {
   if (!dateInput) return '';
   const date = new Date(dateInput);
   if (isNaN(date.getTime())) return '';
@@ -211,12 +234,12 @@ export function formatTime(dateInput, clockFormat = '12h') {
   });
 }
 
-export function formatDateTime(dateInput, settings = {}) {
+export function formatDateTime(dateInput: string | Date | null | undefined, settings: DateSettings = {}): string {
   if (!dateInput) return '';
   const date = new Date(dateInput);
   if (isNaN(date.getTime())) return '';
 
-  const { timeFormat = 'relative', clockFormat = '12h', dateFormat = 'MMM d, yyyy' } = settings;
+  const { timeFormat = 'relative', clockFormat = '12h' } = settings;
   
   if (timeFormat === 'relative') {
     const diffMs = Date.now() - date.getTime();
@@ -232,15 +255,27 @@ export function formatDateTime(dateInput, settings = {}) {
   return `${d} at ${t}`;
 }
 
+export interface GlobalLabel {
+  id?: string | number;
+  name: string;
+  color?: string;
+  text_color?: string;
+  description?: string;
+  [key: string]: any;
+}
+
 /**
  * Filter issue labels to ONLY those that match configured global labels.
  * Discards any extra GitLab labels not in globalLabels.
  */
-export function getVisibleGlobalLabels(issueLabels = [], globalLabels = []) {
+export function getVisibleGlobalLabels(
+  issueLabels: Array<string | { name?: string; title?: string }> = [],
+  globalLabels: GlobalLabel[] = []
+): GlobalLabel[] {
   if (!Array.isArray(issueLabels) || issueLabels.length === 0) return [];
   if (!Array.isArray(globalLabels) || globalLabels.length === 0) return [];
 
-  const visible = [];
+  const visible: GlobalLabel[] = [];
   for (const raw of issueLabels) {
     const rawName = (typeof raw === 'string' ? raw : raw?.name || raw?.title || '')?.trim();
     if (!rawName) continue;
@@ -254,9 +289,8 @@ export function getVisibleGlobalLabels(issueLabels = [], globalLabels = []) {
   return visible;
 }
 
-
-export function getStatusConfig(state) {
-  const map = {
+export function getStatusConfig(state: string) {
+  const map: Record<string, { label: string; color: string }> = {
     opened: { label: 'Open',   color: 'bg-blue-500/15 text-blue-400 border-blue-500/25' },
     closed: { label: 'Closed', color: 'bg-zinc-500/15 text-zinc-400 border-zinc-500/25' },
     merged: { label: 'Merged', color: 'bg-purple-500/15 text-purple-400 border-purple-500/25' },
@@ -264,7 +298,7 @@ export function getStatusConfig(state) {
   return map[state] || map.opened;
 }
 
-export function generateColor(str) {
+export function generateColor(str: string): string {
   let hash = 0;
   for (let i = 0; i < str.length; i++) {
     hash = str.charCodeAt(i) + ((hash << 5) - hash);
@@ -272,16 +306,16 @@ export function generateColor(str) {
   return `hsl(${Math.abs(hash) % 360}, 65%, 55%)`;
 }
 
-export function debounce(fn, delay) {
-  let timer;
-  return (...args) => {
+export function debounce<T extends (...args: any[]) => any>(fn: T, delay: number): (...args: Parameters<T>) => void {
+  let timer: any;
+  return (...args: Parameters<T>) => {
     clearTimeout(timer);
     timer = setTimeout(() => fn(...args), delay);
   };
 }
 
 // ── Theme helpers ─────────────────────────────────────────────────────────────
-export function applyTheme(theme) {
+export function applyTheme(theme: string): void {
   const root = document.documentElement;
   if (theme === 'light') {
     root.classList.add('light');
@@ -290,6 +324,6 @@ export function applyTheme(theme) {
   }
 }
 
-export function getSystemTheme() {
+export function getSystemTheme(): 'light' | 'dark' {
   return window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
 }

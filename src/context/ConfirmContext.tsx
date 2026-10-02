@@ -1,14 +1,39 @@
-import React, { createContext, useContext, useState, useRef, useCallback, useEffect } from 'react';
+import React, { createContext, useContext, useState, useRef, useCallback, useEffect, type ReactNode } from 'react';
 import { AlertTriangle, HelpCircle, X } from 'lucide-react';
-import { cn } from '../lib/utils.js';
+import { cn } from '../lib/utils';
 
-const ConfirmContext = createContext(null);
+export interface ConfirmOptions {
+  title?: string;
+  description?: string;
+  confirmButtonText?: string;
+  confirButtinText?: string;
+  confirmLabel?: string;
+  cancelButtonText?: string;
+  cancelLabel?: string;
+  danger?: boolean;
+  icon?: any;
+}
 
-export function ConfirmProvider({ children }) {
-  const [config, setConfig] = useState(null);
-  const resolverRef = useRef(null);
+export interface ConfirmResult {
+  result: boolean;
+}
 
-  const confirm = useCallback((options) => {
+export type ConfirmFn = (options: ConfirmOptions) => Promise<ConfirmResult>;
+
+const ConfirmContext = createContext<ConfirmFn | null>(null);
+
+export function ConfirmProvider({ children }: { children: ReactNode }) {
+  const [config, setConfig] = useState<{
+    title: string;
+    description: string;
+    confirmButtonText: string;
+    cancelButtonText: string;
+    danger: boolean;
+    icon?: any;
+  } | null>(null);
+  const resolverRef = useRef<((val: ConfirmResult) => void) | null>(null);
+
+  const confirm: ConfirmFn = useCallback((options: ConfirmOptions) => {
     return new Promise((resolve) => {
       resolverRef.current = resolve;
       const isDanger = options?.danger !== undefined 
@@ -26,7 +51,7 @@ export function ConfirmProvider({ children }) {
     });
   }, []);
 
-  const handleResolve = useCallback((resultValue) => {
+  const handleResolve = useCallback((resultValue: boolean) => {
     const resolve = resolverRef.current;
     resolverRef.current = null;
     setConfig(null);
@@ -38,7 +63,7 @@ export function ConfirmProvider({ children }) {
   // Keyboard shortcut listener
   useEffect(() => {
     if (!config) return;
-    const handleKeyDown = (e) => {
+    const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
         e.preventDefault();
         handleResolve(false);
@@ -139,7 +164,7 @@ export function ConfirmProvider({ children }) {
   );
 }
 
-export function useConfirm() {
+export function useConfirm(): ConfirmFn {
   const context = useContext(ConfirmContext);
   if (!context) {
     throw new Error('useConfirm must be used within a ConfirmProvider');

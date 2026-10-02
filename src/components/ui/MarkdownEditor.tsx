@@ -6,15 +6,24 @@ import {
   Link2, Image as ImageIcon, Eye, Edit3, Loader2,
   Paperclip,
 } from 'lucide-react';
-import { cn } from '../../lib/utils.js';
-import useStore from '../../store/useStore.js';
-import { useToast } from './overlay.jsx';
+import { cn } from '../../lib/utils';
+import useStore from '../../store/useStore';
+import { useToast } from './overlay';
 
 // Configure marked for safe GFM
 marked.setOptions({
   gfm: true,
   breaks: true,
 });
+
+export interface MarkdownEditorProps {
+  value?: string;
+  onChange?: (val: string) => void;
+  projectId?: string | number;
+  placeholder?: string;
+  rows?: number;
+  className?: string;
+}
 
 export default function MarkdownEditor({
   value = '',
@@ -23,12 +32,12 @@ export default function MarkdownEditor({
   placeholder = 'Add description, notes, or markdown...',
   rows = 5,
   className,
-}) {
-  const [mode, setMode] = useState('write'); // 'write' | 'preview'
+}: MarkdownEditorProps) {
+  const [mode, setMode] = useState<'write' | 'preview'>('write');
   const [uploading, setUploading] = useState(false);
   const [dragOver, setDragOver] = useState(false);
-  const textareaRef = useRef(null);
-  const fileInputRef = useRef(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const toast = useToast();
 
   const { uploadFileToProject, instanceUrl, projects } = useStore();
@@ -36,7 +45,7 @@ export default function MarkdownEditor({
   const currentProject = projects.find((p) => String(p.id) === String(projectId));
 
   // Helper to insert markdown text at cursor or wrap selection
-  const insertFormatting = useCallback((prefix, suffix = '', defaultText = '') => {
+  const insertFormatting = useCallback((prefix: string, suffix = '', defaultText = '') => {
     const textarea = textareaRef.current;
     if (!textarea) return;
 
@@ -61,7 +70,7 @@ export default function MarkdownEditor({
   }, [onChange]);
 
   // Upload handler for photos / attachments
-  const handleUploadFiles = useCallback(async (files) => {
+  const handleUploadFiles = useCallback(async (files: FileList | File[]) => {
     if (!files || files.length === 0) return;
 
     if (!projectId) {
@@ -105,7 +114,7 @@ export default function MarkdownEditor({
           type: 'success',
           message: `✓ Uploaded to GitLab server (${file.name})`,
         });
-      } catch (err) {
+      } catch (err: any) {
         toast({ type: 'error', message: err.message || 'Failed to upload photo' });
         // Remove placeholder on failure
         const revertedVal = (textarea ? textarea.value : withPlaceholder).replace(
@@ -120,12 +129,13 @@ export default function MarkdownEditor({
   }, [projectId, uploadFileToProject, value, onChange, toast]);
 
   // Clipboard paste listener for images (Ctrl+V screenshot / photo)
-  const handlePaste = useCallback((e) => {
+  const handlePaste = useCallback((e: React.ClipboardEvent<HTMLTextAreaElement>) => {
     const items = e.clipboardData?.items;
     if (!items) return;
 
-    const imageFiles = [];
-    for (const item of items) {
+    const imageFiles: File[] = [];
+    for (let i = 0; i < items.length; i++) {
+      const item = items[i];
       if (item.type.startsWith('image/')) {
         const file = item.getAsFile();
         if (file) imageFiles.push(file);
@@ -139,7 +149,7 @@ export default function MarkdownEditor({
   }, [handleUploadFiles]);
 
   // Drag and drop handlers
-  const handleDrop = useCallback((e) => {
+  const handleDrop = useCallback((e: React.DragEvent) => {
     e.preventDefault();
     setDragOver(false);
     const files = e.dataTransfer?.files;
@@ -148,12 +158,12 @@ export default function MarkdownEditor({
     }
   }, [handleUploadFiles]);
 
-  const handleDragOver = (e) => {
+  const handleDragOver = (e: React.DragEvent) => {
     e.preventDefault();
     setDragOver(true);
   };
 
-  const handleDragLeave = (e) => {
+  const handleDragLeave = (e: React.DragEvent) => {
     e.preventDefault();
     setDragOver(false);
   };
@@ -177,7 +187,7 @@ export default function MarkdownEditor({
     }
 
     try {
-      return marked.parse(processedMarkdown);
+      return marked.parse(processedMarkdown) as string;
     } catch {
       return '<p class="text-red-500 text-xs">Error parsing markdown preview</p>';
     }
@@ -393,9 +403,13 @@ export default function MarkdownEditor({
         <div className="p-4 min-h-[140px] max-h-[350px] overflow-y-auto prose dark:prose-invert max-w-none text-xs leading-relaxed">
           <div
             dangerouslySetInnerHTML={{ __html: getRenderedHtml() }}
-            onClick={(e) => {
-              if (e.target.tagName === 'IMG' && e.target.src) {
-                window.open(e.target.src, '_blank', 'noopener,noreferrer');
+            onClick={(e: React.MouseEvent<HTMLDivElement>) => {
+              const target = e.target as HTMLElement;
+              if (target.tagName === 'IMG') {
+                const img = target as HTMLImageElement;
+                if (img.src) {
+                  window.open(img.src, '_blank', 'noopener,noreferrer');
+                }
               }
             }}
             title="Click image to open original on GitLab server"

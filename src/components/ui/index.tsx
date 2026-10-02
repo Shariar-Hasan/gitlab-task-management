@@ -1,10 +1,10 @@
 import * as React from 'react';
 import { Moon, Sun, Laptop } from 'lucide-react';
-import { cn, formatTime } from '../../lib/utils.js';
-import useStore from '../../store/useStore.js';
+import { cn, formatTime } from '../../lib/utils';
+import useStore from '../../store/useStore';
 
 // ── Button ─────────────────────────────────────────────────────────────────────
-const buttonVariants = {
+const buttonVariants: Record<string, string> = {
   default:   'bg-[var(--accent)] hover:bg-[var(--accent-hover)] text-white shadow-md',
   secondary: 'bg-[var(--surface-2)] hover:bg-[var(--surface-3)] text-[var(--text-1)] border border-[var(--border)] hover:border-[var(--border-hover)]',
   ghost:     'hover:bg-[var(--surface-2)] text-[var(--text-2)] hover:text-[var(--text-1)]',
@@ -12,7 +12,8 @@ const buttonVariants = {
   success:   'bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-500 border border-emerald-500/20',
   outline:   'border border-[var(--border)] hover:border-[var(--border-hover)] text-[var(--text-2)] hover:text-[var(--text-1)] hover:bg-[var(--surface-2)]',
 };
-const buttonSizes = {
+
+const buttonSizes: Record<string, string> = {
   sm:       'h-7 px-3 text-xs rounded-md gap-1.5',
   md:       'h-9 px-4 text-sm rounded-[10px] gap-2',
   lg:       'h-11 px-6 text-sm rounded-xl gap-2.5',
@@ -20,7 +21,12 @@ const buttonSizes = {
   'icon-sm':'h-7 w-7 rounded-md',
 };
 
-export const Button = React.forwardRef(
+export interface ButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {
+  variant?: keyof typeof buttonVariants;
+  size?: keyof typeof buttonSizes;
+}
+
+export const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
   ({ className, variant = 'default', size = 'md', children, disabled, ...props }, ref) => (
     <button
       ref={ref}
@@ -39,92 +45,113 @@ export const Button = React.forwardRef(
 );
 Button.displayName = 'Button';
 
-export const Badge = ({ children, className, style }) => (
+export interface BadgeProps extends React.HTMLAttributes<HTMLSpanElement> {
+  children: React.ReactNode;
+}
+
+export const Badge = ({ children, className, style }: BadgeProps) => (
   <span className={cn('inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium border', className)} style={style}>
     {children}
   </span>
 );
 
-export const Input = React.forwardRef(({ className, ...props }, ref) => (
-  <input
-    ref={ref}
-    className={cn(
-      'flex h-9 w-full rounded-[10px] border border-[var(--border)] bg-[var(--surface)] px-3 py-1 text-sm text-[var(--text-1)]',
-      'placeholder:text-[var(--text-3)] transition-colors duration-150',
-      'focus:outline-none focus:border-[var(--accent)]/60 focus:ring-2 focus:ring-[var(--accent)]/15',
-      'hover:border-[var(--border-hover)] disabled:opacity-40 disabled:pointer-events-none',
-      className
-    )}
-    {...props}
-  />
-));
+export const Input = React.forwardRef<HTMLInputElement, React.InputHTMLAttributes<HTMLInputElement>>(
+  ({ className, ...props }, ref) => (
+    <input
+      ref={ref}
+      className={cn(
+        'flex h-9 w-full rounded-[10px] border border-[var(--border)] bg-[var(--surface)] px-3 py-1 text-sm text-[var(--text-1)]',
+        'placeholder:text-[var(--text-3)] transition-colors duration-150',
+        'focus:outline-none focus:border-[var(--accent)]/60 focus:ring-2 focus:ring-[var(--accent)]/15',
+        'hover:border-[var(--border-hover)] disabled:opacity-40 disabled:pointer-events-none',
+        className
+      )}
+      {...props}
+    />
+  )
+);
 Input.displayName = 'Input';
 
-export const Textarea = React.forwardRef(({ className, ...props }, ref) => (
-  <textarea
-    ref={ref}
-    className={cn(
-      'flex w-full rounded-[10px] border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-sm text-[var(--text-1)]',
-      'placeholder:text-[var(--text-3)] transition-colors duration-150 resize-none',
-      'focus:outline-none focus:border-[var(--accent)]/60 focus:ring-2 focus:ring-[var(--accent)]/15',
-      'hover:border-[var(--border-hover)]',
-      className
-    )}
-    {...props}
-  />
-));
+export const Textarea = React.forwardRef<HTMLTextAreaElement, React.TextareaHTMLAttributes<HTMLTextAreaElement>>(
+  ({ className, ...props }, ref) => (
+    <textarea
+      ref={ref}
+      className={cn(
+        'flex w-full rounded-[10px] border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-sm text-[var(--text-1)]',
+        'placeholder:text-[var(--text-3)] transition-colors duration-150 resize-none',
+        'focus:outline-none focus:border-[var(--accent)]/60 focus:ring-2 focus:ring-[var(--accent)]/15',
+        'hover:border-[var(--border-hover)]',
+        className
+      )}
+      {...props}
+    />
+  )
+);
 Textarea.displayName = 'Textarea';
 
-export const Label = ({ children, className, ...props }) => (
+export const Label = ({ children, className, ...props }: React.LabelHTMLAttributes<HTMLLabelElement>) => (
   <label className={cn('text-xs font-medium text-[var(--text-2)] block mb-1.5', className)} {...props}>
     {children}
   </label>
 );
 
-export const Card = ({ children, className, ...props }) => (
+export const Card = ({ children, className, ...props }: React.HTMLAttributes<HTMLDivElement>) => (
   <div className={cn('rounded-xl border border-[var(--border)] bg-[var(--surface)] shadow-[var(--shadow-card)]', className)} {...props}>
     {children}
   </div>
 );
 
-export const Spinner = ({ size = 'md', className }) => {
-  const sizes = { sm: 'h-4 w-4', md: 'h-5 w-5', lg: 'h-8 w-8' };
+export const Spinner = ({ size = 'md', className }: { size?: 'sm' | 'md' | 'lg'; className?: string }) => {
+  const sizes: Record<string, string> = { sm: 'h-4 w-4', md: 'h-5 w-5', lg: 'h-8 w-8' };
   return (
     <div className={cn('animate-spin rounded-full border-2 border-[var(--border)] border-t-[var(--accent)]', sizes[size], className)} />
   );
 };
 
-export const Skeleton = ({ className }) => (
+export const Skeleton = ({ className }: { className?: string }) => (
   <div className={cn('animate-shimmer rounded-lg bg-[var(--surface-2)]', className)} />
 );
 
-export const Separator = ({ className, orientation = 'horizontal' }) => (
+export const Separator = ({ className, orientation = 'horizontal' }: { className?: string; orientation?: 'horizontal' | 'vertical' }) => (
   <div className={cn('bg-[var(--border)] shrink-0', orientation === 'horizontal' ? 'h-px w-full' : 'w-px h-full', className)} />
 );
 
-export const Avatar = ({ src, name, size = 'sm', className }) => {
+export interface AvatarProps {
+  src?: string | null;
+  name?: string | null;
+  size?: 'sm' | 'md' | 'lg';
+  className?: string;
+}
+
+export const Avatar = ({ src, name, size = 'sm', className }: AvatarProps) => {
   const [imgError, setImgError] = React.useState(false);
   const initials = name ? name.split(' ').map((n) => n[0]).join('').slice(0, 2).toUpperCase() : '?';
-  const sizes = { sm: 'h-6 w-6 text-[10px]', md: 'h-8 w-8 text-xs', lg: 'h-10 w-10 text-sm' };
+  const sizes: Record<string, string> = { sm: 'h-6 w-6 text-[10px]', md: 'h-8 w-8 text-xs', lg: 'h-10 w-10 text-sm' };
   const hue = (name ? name.charCodeAt(0) : 0) * 137.5 % 360;
 
   if (src && !imgError) {
     return (
-      <img src={src} alt={name} onError={() => setImgError(true)}
+      <img src={src} alt={name || 'Avatar'} onError={() => setImgError(true)}
         className={cn('rounded-full object-cover border border-[var(--border)]', sizes[size], className)} />
     );
   }
   return (
     <div
       className={cn('rounded-full flex items-center justify-center font-semibold text-white border border-[var(--border)]', sizes[size], className)}
-      style={{ background: `hsl(${hue}, 55%, 35%)` }} title={name}
+      style={{ background: `hsl(${hue}, 55%, 35%)` }} title={name || ''}
     >
       {initials}
     </div>
   );
 };
 
-export const Tooltip = ({ children, content, side = 'top' }) => {
+export interface TooltipProps {
+  children: React.ReactNode;
+  content: React.ReactNode;
+  side?: 'top' | 'bottom' | 'left' | 'right';
+}
+
+export const Tooltip = ({ children, content, side = 'top' }: TooltipProps) => {
   const [show, setShow] = React.useState(false);
   return (
     <div className="relative inline-flex" onMouseEnter={() => setShow(true)} onMouseLeave={() => setShow(false)}>
@@ -144,24 +171,33 @@ export const Tooltip = ({ children, content, side = 'top' }) => {
   );
 };
 
-export const Select = React.forwardRef(({ className, children, ...props }, ref) => (
-  <select
-    ref={ref}
-    className={cn(
-      'flex h-9 w-full rounded-[10px] border border-[var(--border)] bg-[var(--surface)] px-3 py-1 text-sm text-[var(--text-1)]',
-      'focus:outline-none focus:border-[var(--accent)]/60 focus:ring-2 focus:ring-[var(--accent)]/15',
-      'hover:border-[var(--border-hover)] transition-colors duration-150 cursor-pointer disabled:opacity-40',
-      className
-    )}
-    {...props}
-  >
-    {children}
-  </select>
-));
+export const Select = React.forwardRef<HTMLSelectElement, React.SelectHTMLAttributes<HTMLSelectElement>>(
+  ({ className, children, ...props }, ref) => (
+    <select
+      ref={ref}
+      className={cn(
+        'flex h-9 w-full rounded-[10px] border border-[var(--border)] bg-[var(--surface)] px-3 py-1 text-sm text-[var(--text-1)]',
+        'focus:outline-none focus:border-[var(--accent)]/60 focus:ring-2 focus:ring-[var(--accent)]/15',
+        'hover:border-[var(--border-hover)] transition-colors duration-150 cursor-pointer disabled:opacity-40',
+        className
+      )}
+      {...props}
+    >
+      {children}
+    </select>
+  )
+);
 Select.displayName = 'Select';
 
-export const Switch = ({ checked, onCheckedChange, disabled }) => (
+export interface SwitchProps {
+  checked: boolean;
+  onCheckedChange: (checked: boolean) => void;
+  disabled?: boolean;
+}
+
+export const Switch = ({ checked, onCheckedChange, disabled }: SwitchProps) => (
   <button
+    type="button"
     role="switch" aria-checked={checked}
     onClick={() => !disabled && onCheckedChange(!checked)}
     className={cn(
@@ -176,7 +212,7 @@ export const Switch = ({ checked, onCheckedChange, disabled }) => (
   </button>
 );
 
-export const ProgressBar = ({ value, className }) => (
+export const ProgressBar = ({ value, className }: { value: number; className?: string }) => (
   <div className={cn('h-1.5 w-full bg-[var(--surface-2)] rounded-full overflow-hidden', className)}>
     <div
       className="h-full bg-gradient-to-r from-[var(--accent)] to-emerald-400 rounded-full transition-all duration-500"
@@ -215,7 +251,7 @@ export function ThemeToggle() {
 }
 
 // ── Cache Status ────────────────────────────────────────────────────────────────
-export function CacheStatus({ lastFetchedAt }) {
+export function CacheStatus({ lastFetchedAt }: { lastFetchedAt?: number | null }) {
   const { appSettings } = useStore();
   const [ago, setAgo] = React.useState('');
 
@@ -245,7 +281,14 @@ export function CacheStatus({ lastFetchedAt }) {
 }
 
 // ── Empty State ────────────────────────────────────────────────────────────────
-export const EmptyState = ({ icon: Icon, title, description, action }) => (
+export interface EmptyStateProps {
+  icon?: any;
+  title: string;
+  description?: string;
+  action?: React.ReactNode;
+}
+
+export const EmptyState = ({ icon: Icon, title, description, action }: EmptyStateProps) => (
   <div className="flex flex-col items-center justify-center py-16 px-8 text-center animate-fade-in">
     {Icon && (
       <div className="mb-4 p-4 rounded-2xl bg-[var(--surface-2)] border border-[var(--border)]">
@@ -258,5 +301,4 @@ export const EmptyState = ({ icon: Icon, title, description, action }) => (
   </div>
 );
 
-export { FilterSelect } from './FilterSelect.jsx';
-
+export { FilterSelect } from './FilterSelect';

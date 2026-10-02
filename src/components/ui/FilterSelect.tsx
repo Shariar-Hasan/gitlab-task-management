@@ -1,7 +1,31 @@
-import React, { useState, useRef, useEffect, useMemo } from 'react';
+import React, { useState, useRef, useEffect, useMemo, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
-import { ChevronDown, Check, X, Search, CheckSquare, Square } from 'lucide-react';
-import { cn } from '../../lib/utils.js';
+import { ChevronDown, Check, X, Search } from 'lucide-react';
+import { cn } from '../../lib/utils';
+
+export interface FilterOption {
+  value: string | number;
+  label: string;
+  subtitle?: string;
+  color?: string;
+  icon?: ReactNode;
+  [key: string]: any;
+}
+
+export interface FilterSelectProps {
+  id?: string;
+  value?: any;
+  onChange: (val: any) => void;
+  options?: FilterOption[];
+  placeholder?: string;
+  label?: string;
+  icon?: any;
+  allLabel?: string;
+  searchable?: boolean;
+  searchPlaceholder?: string;
+  width?: number;
+  isMulti?: boolean;
+}
 
 export function FilterSelect({
   id,
@@ -16,12 +40,12 @@ export function FilterSelect({
   searchPlaceholder = 'Search...',
   width = 240,
   isMulti = false,
-}) {
+}: FilterSelectProps) {
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState('');
   const [pos, setPos] = useState({ top: 0, left: 0 });
-  const anchorRef = useRef(null);
-  const searchInputRef = useRef(null);
+  const anchorRef = useRef<HTMLButtonElement>(null);
+  const searchInputRef = useRef<HTMLInputElement>(null);
 
   // Multi-select helpers
   const selectedValues = useMemo(() => {
@@ -63,7 +87,7 @@ export function FilterSelect({
   // Close on Escape
   useEffect(() => {
     if (!open) return;
-    const handleKeyDown = (e) => {
+    const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') setOpen(false);
     };
     window.addEventListener('keydown', handleKeyDown);
@@ -79,14 +103,14 @@ export function FilterSelect({
     );
   }, [options, search]);
 
-  const handleSingleSelect = (val) => {
+  const handleSingleSelect = (val: any) => {
     onChange(val);
     setOpen(false);
   };
 
-  const handleMultiToggle = (val) => {
+  const handleMultiToggle = (val: any) => {
     const sVal = String(val);
-    let next;
+    let next: string[];
     if (selectedValues.includes(sVal)) {
       next = selectedValues.filter((v) => v !== sVal);
     } else {
@@ -95,7 +119,7 @@ export function FilterSelect({
     onChange(next);
   };
 
-  const handleClear = (e) => {
+  const handleClear = (e: React.MouseEvent) => {
     e.stopPropagation();
     if (isMulti) {
       onChange([]);
@@ -145,7 +169,7 @@ export function FilterSelect({
               <span>selected</span>
             </span>
           )
-        ) : hasSelection ? (
+        ) : hasSelection && singleSelectedOption ? (
           <span className="font-semibold text-[var(--text-1)] max-w-[140px] truncate flex items-center gap-1.5">
             {singleSelectedOption.icon ? (
               singleSelectedOption.icon

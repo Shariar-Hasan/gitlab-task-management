@@ -6,12 +6,13 @@ import {
   Clock, Calendar, Trash2, Edit2, RotateCcw,
   Database, Download, Plus, Check, Search, RefreshCw, X,
   Filter, FolderGit2, Moon, Sun, Laptop,
+  ToggleRight, FileText,
 } from 'lucide-react';
-import { Button, Input, Card, Badge, ThemeToggle, Switch } from './ui/index.jsx';
-import { useToast } from './ui/overlay.jsx';
-import useStore from '../store/useStore.js';
-import { cn, formatTime, getVisibleGlobalLabels } from '../lib/utils.js';
-import { localStore, TASK_STATUSES } from '../lib/localStore.js';
+import { Button, Input, Card, Badge, ThemeToggle, Switch } from './ui/index';
+import { useToast } from './ui/overlay';
+import useStore from '../store/useStore';
+import { cn, formatTime, getVisibleGlobalLabels } from '../lib/utils';
+import { localStore, TASK_STATUSES } from '../lib/localStore';
 
 // ── Connection Settings ────────────────────────────────────────────────────────
 function ConnectionSettings() {
@@ -22,7 +23,7 @@ function ConnectionSettings() {
   const [showToken, setShowToken] = useState(false);
   const [testing, setTesting] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [testResult, setTestResult] = useState(null);
+  const [testResult, setTestResult] = useState<{ success: boolean; user?: any; error?: string } | null>(null);
 
   useEffect(() => { setLocalUrl(instanceUrl || 'https://gitlab.com'); setLocalToken(token || ''); }, [instanceUrl, token]);
 
@@ -55,7 +56,7 @@ function ConnectionSettings() {
       {isAuthenticated && currentUser && (
         <Card className="p-4 border-emerald-500/20 bg-emerald-500/5">
           <div className="flex items-center gap-3">
-            <img src={currentUser.avatar_url} alt={currentUser.name} className="h-10 w-10 rounded-full border border-emerald-500/30" onError={(e) => { e.target.style.display = 'none'; }} />
+            <img src={currentUser.avatar_url} alt={currentUser.name} className="h-10 w-10 rounded-full border border-emerald-500/30" onError={(e: any) => { e.target.style.display = 'none'; }} />
             <div className="flex-1 min-w-0">
               <p className="text-sm font-medium text-[var(--text-1)] truncate">{currentUser.name}</p>
               <p className="text-xs text-[var(--text-2)]">@{currentUser.username}</p>
@@ -114,11 +115,11 @@ function ConnectionSettings() {
 
       <div className="flex gap-3 pt-2 border-t border-[var(--border)]">
         <Button variant="secondary" onClick={handleTest} disabled={!canSave || testing} className="flex-1">
-          {testing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Zap className="h-4 w-4" />}
+          {testing ? <Loader2 className="h-4 w-4 animate-spin mr-1.5" /> : <Zap className="h-4 w-4 mr-1.5" />}
           {testing ? 'Testing...' : 'Test Connection'}
         </Button>
         <Button onClick={handleSave} disabled={!canSave || saving} className="flex-1">
-          {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <ArrowRight className="h-4 w-4" />}
+          {saving ? <Loader2 className="h-4 w-4 animate-spin mr-1.5" /> : <ArrowRight className="h-4 w-4 mr-1.5" />}
           {saving ? 'Saving...' : 'Save & Connect'}
         </Button>
       </div>
@@ -189,7 +190,7 @@ function AppearanceSettings() {
                 className={cn(
                   'flex flex-col items-center gap-2.5 p-3.5 rounded-xl border text-center transition-all cursor-pointer group',
                   active
-                    ? 'border-[var(--accent)] bg-[var(--accent-muted)] text-[var(--accent)] shadow-sm'
+                    ? 'border-[var(--accent)] bg-[var(--accent-muted)] text-[var(--accent)] shadow-xs'
                     : 'border-[var(--border)] bg-[var(--surface-2)] text-[var(--text-2)] hover:border-[var(--border-hover)]'
                 )}
               >
@@ -221,7 +222,7 @@ function AppearanceSettings() {
           </p>
           <div className="flex items-center gap-2">
             <span
-              className="h-3 w-3 rounded-full border border-white/20 shadow-sm"
+              className="h-3 w-3 rounded-full border border-white/20 shadow-xs"
               style={{ backgroundColor: appSettings.accentColor || '#10b981' }}
             />
             <span className="text-[11px] font-mono text-[var(--text-2)] uppercase">
@@ -322,7 +323,7 @@ function AppearanceSettings() {
                 className={cn(
                   'flex items-start gap-3 p-3 rounded-xl border cursor-pointer transition-all',
                   active
-                    ? 'border-[var(--accent)] bg-[var(--accent-muted)] shadow-sm'
+                    ? 'border-[var(--accent)] bg-[var(--accent-muted)] shadow-xs'
                     : 'border-[var(--border)] bg-[var(--surface-2)] hover:border-[var(--border-hover)]'
                 )}
               >
@@ -423,7 +424,7 @@ function GlobalLabelsSettings() {
   const { globalLabels, addGlobalLabel, updateGlobalLabel, deleteGlobalLabel, resetGlobalLabels, issues } = useStore();
   const toast = useToast();
   const [search, setSearch] = useState('');
-  const [editingId, setEditingId] = useState(null);
+  const [editingId, setEditingId] = useState<string | null>(null);
   const [editForm, setEditForm] = useState({ name: '', color: '#3b82f6', description: '' });
   const [newLabel, setNewLabel] = useState({ name: '', color: '#ef4444', description: '' });
   const [showAdd, setShowAdd] = useState(false);
@@ -436,11 +437,13 @@ function GlobalLabelsSettings() {
 
   // Count usage of each label in currently cached issues
   const labelUsage = useMemo(() => {
-    const counts = {};
+    const counts: Record<string, number> = {};
     issues.forEach((i) => {
       const matched = getVisibleGlobalLabels(i.labels, globalLabels);
       matched.forEach((m) => {
-        counts[m.id] = (counts[m.id] || 0) + 1;
+        if (m.id) {
+          counts[String(m.id)] = (counts[String(m.id)] || 0) + 1;
+        }
       });
     });
     return counts;
@@ -451,12 +454,12 @@ function GlobalLabelsSettings() {
       (l.description && l.description.toLowerCase().includes(search.toLowerCase()))
   );
 
-  const handleStartEdit = (label) => {
+  const handleStartEdit = (label: any) => {
     setEditingId(label.id);
     setEditForm({ name: label.name, color: label.color, description: label.description || '' });
   };
 
-  const handleSaveEdit = (id) => {
+  const handleSaveEdit = (id: string) => {
     if (!editForm.name.trim()) return;
     updateGlobalLabel(id, {
       name: editForm.name.trim(),
@@ -467,12 +470,12 @@ function GlobalLabelsSettings() {
     toast({ type: 'success', message: 'Label updated' });
   };
 
-  const handleDelete = (id, name) => {
+  const handleDelete = (id: string, name: string) => {
     deleteGlobalLabel(id);
     toast({ type: 'info', message: `Deleted label "${name}"` });
   };
 
-  const handleCreate = (e) => {
+  const handleCreate = (e: React.FormEvent) => {
     e.preventDefault();
     if (!newLabel.name.trim()) return;
     try {
@@ -480,7 +483,7 @@ function GlobalLabelsSettings() {
       setNewLabel({ name: '', color: '#3b82f6', description: '' });
       setShowAdd(false);
       toast({ type: 'success', message: `Added global label "${newLabel.name.trim()}"` });
-    } catch (err) {
+    } catch (err: any) {
       toast({ type: 'error', message: err.message });
     }
   };
@@ -542,7 +545,7 @@ function GlobalLabelsSettings() {
             </p>
             <button
               onClick={() => setShowAdd(false)}
-              className="text-[var(--text-3)] hover:text-[var(--text-1)]"
+              className="text-[var(--text-3)] hover:text-[var(--text-1)] cursor-pointer"
             >
               <X className="h-4 w-4" />
             </button>
@@ -579,7 +582,7 @@ function GlobalLabelsSettings() {
                     type="button"
                     onClick={() => setNewLabel({ ...newLabel, color: c })}
                     className={cn(
-                      'h-6 w-6 rounded-full border-2 transition-transform hover:scale-110 shadow-sm',
+                      'h-6 w-6 rounded-full border-2 transition-transform hover:scale-110 shadow-xs cursor-pointer',
                       newLabel.color === c ? 'border-white scale-110 ring-2 ring-[var(--accent)]' : 'border-transparent'
                     )}
                     style={{ background: c }}
@@ -589,7 +592,7 @@ function GlobalLabelsSettings() {
                   type="color"
                   value={newLabel.color}
                   onChange={(e) => setNewLabel({ ...newLabel, color: e.target.value })}
-                  className="h-6 w-6 rounded-full cursor-pointer border-0 p-0 shadow-sm"
+                  className="h-6 w-6 rounded-full cursor-pointer border-0 p-0 shadow-xs"
                   title="Choose custom color"
                 />
               </div>
@@ -675,7 +678,7 @@ function GlobalLabelsSettings() {
               >
                 <div className="flex items-center gap-2.5 min-w-0">
                   <span
-                    className="h-3.5 w-3.5 rounded-full shrink-0 shadow-sm"
+                    className="h-3.5 w-3.5 rounded-full shrink-0 shadow-xs"
                     style={{ background: label.color }}
                   />
                   <div className="min-w-0">
@@ -742,7 +745,7 @@ function GlobalLabelsSettings() {
 }
 
 // ── Setting Row Helper ────────────────────────────────────────────────────────
-function SettingRow({ icon: Icon, title, desc, right }) {
+function SettingRow({ icon: Icon, title, desc, right }: { icon: any; title: string; desc: string; right: React.ReactNode }) {
   return (
     <div className="flex items-center justify-between gap-4 py-3.5 border-b border-[var(--border)] last:border-0">
       <div className="flex items-start gap-3">
@@ -770,7 +773,7 @@ function TaskSettings() {
     : (appSettings.defaultFilterStatus && appSettings.defaultFilterStatus !== 'all' ? [appSettings.defaultFilterStatus] : []);
   const defLabels = appSettings.defaultFilterLabels || [];
 
-  const toggleDefStatus = (statusId) => {
+  const toggleDefStatus = (statusId: string) => {
     const next = defStatuses.includes(statusId)
       ? defStatuses.filter((s) => s !== statusId)
       : [...defStatuses, statusId];
@@ -778,7 +781,7 @@ function TaskSettings() {
     toast({ type: 'success', message: '✓ Default statuses updated' });
   };
 
-  const toggleDefProject = (pid) => {
+  const toggleDefProject = (pid: string | number) => {
     const sPid = String(pid);
     const next = defProjects.includes(sPid)
       ? defProjects.filter((p) => p !== sPid)
@@ -787,7 +790,7 @@ function TaskSettings() {
     toast({ type: 'success', message: '✓ Default projects updated' });
   };
 
-  const toggleDefLabel = (name) => {
+  const toggleDefLabel = (name: string) => {
     const next = defLabels.includes(name)
       ? defLabels.filter((l) => l !== name)
       : [...defLabels, name];
@@ -864,7 +867,7 @@ function TaskSettings() {
                   className={cn(
                     'flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium border transition-all cursor-pointer',
                     active
-                      ? 'border-[var(--accent)] bg-[var(--accent-muted)] font-semibold text-[var(--text-1)] shadow-sm'
+                      ? 'border-[var(--accent)] bg-[var(--accent-muted)] font-semibold text-[var(--text-1)] shadow-xs'
                       : 'border-[var(--border)] bg-[var(--surface-2)] text-[var(--text-2)] hover:border-[var(--border-hover)]'
                   )}
                 >
@@ -1061,7 +1064,7 @@ function StorageSettings() {
     try {
       await refreshAll();
       toast({ type: 'success', message: '✓ Data refreshed from GitLab' });
-    } catch (err) {
+    } catch (err: any) {
       toast({ type: 'error', message: `Refresh failed: ${err.message}` });
     } finally {
       setRefreshing(false);
@@ -1169,16 +1172,259 @@ function StorageSettings() {
   );
 }
 
+// ── Project Management Settings ────────────────────────────────────────────────
+function ProjectSettings() {
+  const { projects, projectOverrides, updateProjectOverride } = useStore();
+  const toast = useToast();
+  const [search, setSearch] = useState('');
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editName, setEditName] = useState('');
+
+  const filtered = useMemo(() => {
+    if (!search.trim()) return projects;
+    const q = search.toLowerCase();
+    return projects.filter((p) =>
+      p.name.toLowerCase().includes(q) ||
+      (p.path_with_namespace || '').toLowerCase().includes(q)
+    );
+  }, [projects, search]);
+
+  const enabledCount = projects.filter((p) => {
+    const ov = projectOverrides?.[String(p.id)];
+    return ov?.enabled !== false;
+  }).length;
+
+  const handleToggle = (p: any) => {
+    const ov = projectOverrides?.[String(p.id)];
+    const currentlyEnabled = ov?.enabled !== false;
+    updateProjectOverride(p.id, { enabled: !currentlyEnabled });
+    const name = ov?.customName || p.name;
+    toast({ type: 'success', message: `"${name}" ${!currentlyEnabled ? 'enabled' : 'disabled'}` });
+  };
+
+  const handleStartEdit = (p: any) => {
+    setEditingId(String(p.id));
+    const ov = projectOverrides?.[String(p.id)];
+    setEditName(ov?.customName || p.name);
+  };
+
+  const handleSaveName = (p: any) => {
+    const name = editName.trim();
+    if (!name) return;
+    updateProjectOverride(p.id, { customName: name === p.name ? undefined : name });
+    setEditingId(null);
+    toast({ type: 'success', message: `Renamed to "${name}"` });
+  };
+
+  const handleResetName = (p: any) => {
+    updateProjectOverride(p.id, { customName: undefined });
+    setEditingId(null);
+    toast({ type: 'info', message: 'Reset to original name' });
+  };
+
+  const handleEnableAll = () => {
+    projects.forEach((pr) => updateProjectOverride(pr.id, { enabled: true }));
+    toast({ type: 'success', message: 'All projects enabled' });
+  };
+
+  if (projects.length === 0) {
+    return (
+      <div className="space-y-4">
+        <div>
+          <h3 className="text-sm font-semibold text-[var(--text-1)] mb-0.5">Project Management</h3>
+          <p className="text-xs text-[var(--text-3)]">No projects loaded yet. Connect and sync first.</p>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-5">
+      <div>
+        <div className="flex items-center justify-between mb-0.5">
+          <h3 className="text-sm font-semibold text-[var(--text-1)]">Project Management</h3>
+          <span className="text-xs font-mono text-[var(--accent)] bg-[var(--accent-muted)] px-2 py-0.5 rounded-full border border-[var(--accent)]/20">
+            {enabledCount}/{projects.length} enabled
+          </span>
+        </div>
+        <p className="text-xs text-[var(--text-3)]">Rename projects for display and toggle which ones appear in the dashboard.</p>
+      </div>
+
+      <div className="flex items-center gap-2">
+        <div className="relative flex-1">
+          <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-[var(--text-3)]" />
+          <Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search projects..." className="pl-8 h-8 text-xs" />
+        </div>
+        <Button variant="ghost" size="sm" onClick={handleEnableAll} className="text-xs gap-1.5 shrink-0">
+          <ToggleRight className="h-3.5 w-3.5 text-[var(--accent)]" /> Enable All
+        </Button>
+      </div>
+
+      <div className="space-y-2">
+        {filtered.map((p) => {
+          const ov = projectOverrides?.[String(p.id)];
+          const isEnabled = ov?.enabled !== false;
+          const displayName = ov?.customName || p.name;
+          const hasCustomName = ov?.customName && ov.customName !== p.name;
+          const isEditing = editingId === String(p.id);
+          const hue = (p.id * 137) % 360;
+          return (
+            <div key={p.id} className={cn('flex items-center gap-3 p-3 rounded-xl border transition-all group', isEnabled ? 'border-[var(--border)] bg-[var(--surface-2)] hover:border-[var(--border-hover)]' : 'border-[var(--border)]/50 bg-[var(--surface-2)]/50 opacity-60')}>
+              <div className="shrink-0">
+                {p.avatar_url ? (<img src={p.avatar_url} alt="" className="h-8 w-8 rounded-lg object-cover border border-[var(--border)]" />) : (
+                  <div className="h-8 w-8 rounded-lg flex items-center justify-center text-xs font-bold text-white border border-[var(--border)]" style={{ background: `hsl(${hue}, 55%, 35%)` }}>{p.name.charAt(0).toUpperCase()}</div>
+                )}
+              </div>
+              <div className="flex-1 min-w-0">
+                {isEditing ? (
+                  <div className="flex items-center gap-1.5">
+                    <input autoFocus value={editName} onChange={(e) => setEditName(e.target.value)}
+                      onKeyDown={(e) => { if (e.key === 'Enter') handleSaveName(p); if (e.key === 'Escape') setEditingId(null); }}
+                      className="flex-1 h-7 px-2 text-xs rounded-md border border-[var(--accent)]/60 bg-[var(--surface)] text-[var(--text-1)] focus:outline-none"
+                    />
+                    <button type="button" onClick={() => handleSaveName(p)} className="h-7 w-7 flex items-center justify-center rounded-md bg-[var(--accent)] text-white hover:opacity-90 cursor-pointer"><Check className="h-3.5 w-3.5" /></button>
+                    <button type="button" onClick={() => setEditingId(null)} className="h-7 w-7 flex items-center justify-center rounded-md text-[var(--text-3)] hover:bg-[var(--surface-3)] cursor-pointer"><X className="h-3.5 w-3.5" /></button>
+                    {hasCustomName && <button type="button" onClick={() => handleResetName(p)} className="h-7 w-7 flex items-center justify-center rounded-md text-[var(--text-3)] hover:text-red-500 cursor-pointer"><RotateCcw className="h-3 w-3" /></button>}
+                  </div>
+                ) : (
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <p className="text-xs font-semibold text-[var(--text-1)] truncate">{displayName}</p>
+                      {hasCustomName && <span className="text-[9px] text-[var(--accent)] bg-[var(--accent-muted)] px-1 py-0.5 rounded font-medium border border-[var(--accent)]/20">renamed</span>}
+                    </div>
+                    <p className="text-[10px] text-[var(--text-3)] truncate">{p.path_with_namespace}</p>
+                  </div>
+                )}
+              </div>
+              {!isEditing && (
+                <div className="flex items-center gap-1.5 shrink-0">
+                  <button type="button" onClick={() => handleStartEdit(p)} title="Rename" className="h-7 w-7 flex items-center justify-center rounded-md text-[var(--text-3)] hover:text-[var(--text-1)] hover:bg-[var(--surface-3)] opacity-0 group-hover:opacity-100 transition-all cursor-pointer">
+                    <Edit2 className="h-3.5 w-3.5" />
+                  </button>
+                  <Switch checked={isEnabled} onCheckedChange={() => handleToggle(p)} />
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+// ── Description Templates Settings ────────────────────────────────────────────
+function TemplatesSettings() {
+  const { templates, updateTemplates, resetTemplates } = useStore();
+  const toast = useToast();
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editForm, setEditForm] = useState({ name: '', content: '' });
+  const [showAdd, setShowAdd] = useState(false);
+  const [newTemplate, setNewTemplate] = useState({ name: '', content: '' });
+  const safeTemplates = Array.isArray(templates) ? templates : [];
+
+  const handleSaveEdit = (id: string) => {
+    if (!editForm.name.trim()) return;
+    updateTemplates(safeTemplates.map((t) => t.id === id ? { ...t, ...editForm } : t));
+    setEditingId(null);
+    toast({ type: 'success', message: 'Template saved' });
+  };
+
+  const handleCreate = () => {
+    if (!newTemplate.name.trim()) return;
+    const tpl = { id: `tpl-${Date.now()}`, name: newTemplate.name.trim(), content: newTemplate.content };
+    updateTemplates([...safeTemplates, tpl]);
+    setNewTemplate({ name: '', content: '' });
+    setShowAdd(false);
+    toast({ type: 'success', message: `Added template "${tpl.name}"` });
+  };
+
+  return (
+    <div className="space-y-5">
+      <div>
+        <div className="flex items-center justify-between mb-0.5">
+          <h3 className="text-sm font-semibold text-[var(--text-1)]">Description Templates</h3>
+          <span className="text-xs font-mono text-[var(--accent)] bg-[var(--accent-muted)] px-2 py-0.5 rounded-full border border-[var(--accent)]/20">{safeTemplates.length} templates</span>
+        </div>
+        <p className="text-xs text-[var(--text-3)]">Quick-start content for task descriptions. Available in the task creation modal.</p>
+      </div>
+      {!showAdd && <Button size="sm" onClick={() => setShowAdd(true)} className="gap-1.5 text-xs"><Plus className="h-3.5 w-3.5" /> New Template</Button>}
+      {showAdd && (
+        <Card className="p-4 border-[var(--accent)]/30 bg-[var(--surface-2)] space-y-3">
+          <div className="flex items-center justify-between">
+            <p className="text-xs font-semibold text-[var(--text-1)]">New Template</p>
+            <button onClick={() => setShowAdd(false)} className="text-[var(--text-3)] hover:text-[var(--text-1)] cursor-pointer"><X className="h-4 w-4" /></button>
+          </div>
+          <Input value={newTemplate.name} onChange={(e) => setNewTemplate({ ...newTemplate, name: e.target.value })} placeholder="Template name..." className="h-8 text-xs" autoFocus />
+          <textarea value={newTemplate.content} onChange={(e) => setNewTemplate({ ...newTemplate, content: e.target.value })} placeholder="Markdown content..." rows={5} className="w-full rounded-[10px] border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-xs font-mono resize-none focus:outline-none focus:border-[var(--accent)]/60 placeholder:text-[var(--text-3)] text-[var(--text-1)]" />
+          <div className="flex gap-2">
+            <Button variant="ghost" size="sm" onClick={() => setShowAdd(false)} className="flex-1 text-xs">Cancel</Button>
+            <Button size="sm" disabled={!newTemplate.name.trim()} onClick={handleCreate} className="flex-1 text-xs">Save</Button>
+          </div>
+        </Card>
+      )}
+      <div className="space-y-2">
+        {safeTemplates.map((tpl) => {
+          const isEditing = editingId === tpl.id;
+          return (
+            <div key={tpl.id} className="rounded-xl border border-[var(--border)] bg-[var(--surface-2)] overflow-hidden group">
+              {isEditing ? (
+                <div className="p-3 space-y-2">
+                  <Input value={editForm.name} onChange={(e) => setEditForm({ ...editForm, name: e.target.value })} className="h-8 text-xs" autoFocus />
+                  <textarea value={editForm.content} onChange={(e) => setEditForm({ ...editForm, content: e.target.value })} rows={5} className="w-full rounded-[10px] border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-xs font-mono resize-none focus:outline-none text-[var(--text-1)]" />
+                  <div className="flex justify-end gap-1.5">
+                    <Button variant="ghost" size="sm" onClick={() => setEditingId(null)} className="h-7 text-xs">Cancel</Button>
+                    <Button size="sm" onClick={() => handleSaveEdit(tpl.id)} className="h-7 text-xs"><Check className="h-3 w-3" /> Save</Button>
+                  </div>
+                </div>
+              ) : (
+                <div className="flex items-start gap-3 p-3">
+                  <FileText className="h-4 w-4 text-[var(--accent)] shrink-0 mt-0.5" />
+                  <div className="flex-1 min-w-0">
+                    <p className="text-xs font-semibold text-[var(--text-1)]">{tpl.name}</p>
+                    <p className="text-[10px] text-[var(--text-3)] mt-0.5 line-clamp-2 font-mono">{(tpl.content || '').slice(0, 100)}...</p>
+                  </div>
+                  <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                    <Button variant="ghost" size="icon-sm" onClick={() => { setEditingId(tpl.id); setEditForm({ name: tpl.name, content: tpl.content }); }}><Edit2 className="h-3.5 w-3.5 text-[var(--text-2)]" /></Button>
+                    <Button variant="ghost" size="icon-sm" onClick={() => { updateTemplates(safeTemplates.filter((t) => t.id !== tpl.id)); toast({ type: 'info', message: `Deleted "${tpl.name}"` }); }} className="hover:text-red-500"><Trash2 className="h-3.5 w-3.5" /></Button>
+                  </div>
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+      <div className="pt-2 border-t border-[var(--border)]">
+        <Button variant="ghost" size="sm" onClick={() => { resetTemplates(); toast({ type: 'info', message: 'Reset to defaults' }); }} className="text-xs text-[var(--text-3)] gap-1.5">
+          <RotateCcw className="h-3 w-3" /> Reset to defaults
+        </Button>
+      </div>
+    </div>
+  );
+}
+
 // ── Main Settings Component ────────────────────────────────────────────────────
-const SECTIONS = [
-  { id: 'connection', label: 'Connection', icon: Link, component: ConnectionSettings },
-  { id: 'appearance', label: 'Appearance & Clock', icon: Palette, component: AppearanceSettings },
-  { id: 'labels', label: 'Global Labels', icon: Tag, component: GlobalLabelsSettings },
-  { id: 'tasks', label: 'Task Defaults', icon: ListTodo, component: TaskSettings },
-  { id: 'storage', label: 'Storage & Cache', icon: Database, component: StorageSettings },
+interface SectionItem {
+  id: string;
+  label: string;
+  icon: any;
+  component: React.ComponentType;
+}
+
+const SECTIONS: SectionItem[] = [
+  { id: 'connection', label: 'Connection',       icon: Link,       component: ConnectionSettings },
+  { id: 'appearance', label: 'Appearance & Clock', icon: Palette,  component: AppearanceSettings },
+  { id: 'projects',   label: 'Projects',         icon: FolderGit2, component: ProjectSettings },
+  { id: 'labels',     label: 'Global Labels',    icon: Tag,        component: GlobalLabelsSettings },
+  { id: 'templates',  label: 'Templates',        icon: FileText,   component: TemplatesSettings },
+  { id: 'tasks',      label: 'Task Defaults',    icon: ListTodo,   component: TaskSettings },
+  { id: 'storage',    label: 'Storage & Cache',  icon: Database,   component: StorageSettings },
 ];
 
-export default function Settings({ onBack }) {
+export interface SettingsProps {
+  onBack?: () => void;
+}
+
+export default function Settings({ onBack }: SettingsProps) {
   const [activeSection, setActiveSection] = useState('connection');
   const ActiveComponent = SECTIONS.find((s) => s.id === activeSection)?.component || ConnectionSettings;
 
@@ -1202,7 +1448,7 @@ export default function Settings({ onBack }) {
                 key={s.id}
                 onClick={() => setActiveSection(s.id)}
                 className={cn(
-                  'w-full flex items-center gap-2.5 px-3 py-2.5 rounded-lg text-sm transition-all text-left',
+                  'w-full flex items-center gap-2.5 px-3 py-2.5 rounded-lg text-sm transition-all text-left cursor-pointer',
                   active
                     ? 'bg-[var(--accent-muted)] text-[var(--accent)] font-medium shadow-xs'
                     : 'text-[var(--text-2)] hover:bg-[var(--surface-2)] hover:text-[var(--text-1)]'

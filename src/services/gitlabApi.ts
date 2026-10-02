@@ -8,7 +8,7 @@
  *  4. Abort signal support for cancellable requests
  */
 
-import { sessionCache } from '../lib/utils.js';
+import { sessionCache } from '../lib/utils';
 
 // ── Constants ──────────────────────────────────────────────────────────────────
 const CONCURRENCY        = 5;
@@ -20,7 +20,10 @@ const CLOSED_ISSUE_DAYS  = 30;              // Only fetch closed issues from las
 
 // ── Error type ─────────────────────────────────────────────────────────────────
 export class GitLabApiError extends Error {
-  constructor(message, status, data) {
+  status?: number;
+  data?: any;
+
+  constructor(message: string, status?: number, data?: any) {
     super(message);
     this.name   = 'GitLabApiError';
     this.status = status;
@@ -29,32 +32,43 @@ export class GitLabApiError extends Error {
 }
 
 // ── Low-level fetch helpers ────────────────────────────────────────────────────
-async function fetchWithTimeout(url, options = {}) {
+async function fetchWithTimeout(url: string, options: RequestInit = {}): Promise<Response> {
   const controller = new AbortController();
   const id = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
   try {
     const res = await fetch(url, { ...options, signal: controller.signal });
     clearTimeout(id);
     return res;
-  } catch (err) {
+  } catch (err: any) {
     clearTimeout(id);
     if (err.name === 'AbortError') throw new GitLabApiError('Request timed out', 408);
     throw err;
   }
 }
 
-function buildHeaders(token, extra = {}) {
-  return { 'Content-Type': 'application/json', 'PRIVATE-TOKEN': token, ...extra };
+function buildHeaders(token: string, extra: HeadersInit = {}): Record<string, string> {
+  return { 'Content-Type': 'application/json', 'PRIVATE-TOKEN': token, ...(extra as Record<string, string>) };
 }
 
-async function restRequest(instanceUrl, token, path, options = {}) {
+interface RestResponse<T = any> {
+  data: T;
+  totalPages: number;
+  nextPage: number | null;
+}
+
+async function restRequest<T = any>(
+  instanceUrl: string,
+  token: string,
+  path: string,
+  options: RequestInit = {}
+): Promise<RestResponse<T>> {
   const url = `${instanceUrl.replace(/\/$/, '')}/api/v4${path}`;
   const res  = await fetchWithTimeout(url, {
     ...options,
     headers: buildHeaders(token, options.headers),
   });
 
-  if (res.status === 204) return { data: null, totalPages: 1, nextPage: null };
+  if (res.status === 204) return { data: null as any, totalPages: 1, nextPage: null };
 
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
@@ -71,7 +85,7 @@ async function restRequest(instanceUrl, token, path, options = {}) {
   return { data, totalPages, nextPage: nextPage ? parseInt(nextPage, 10) : null };
 }
 
-async function graphqlRequest(instanceUrl, token, query, variables = {}) {
+async function graphqlRequest(instanceUrl: string, token: string, query: string, variables: Record<string, any> = {}): Promise<any> {
   const url = `${instanceUrl.replace(/\/$/, '')}/api/graphql`;
   const res  = await fetchWithTimeout(url, {
     method: 'POST',
@@ -86,7 +100,7 @@ async function graphqlRequest(instanceUrl, token, query, variables = {}) {
 
   const json = await res.json();
   if (json.errors?.length) {
-    throw new GitLabApiError(json.errors.map((e) => e.message).join('; '), 200, json);
+    throw new GitLabApiError(json.errors.map((e: any) => e.message).join('; '), 200, json);
   }
   return json.data;
 }
@@ -96,8 +110,12 @@ async function graphqlRequest(instanceUrl, token, query, variables = {}) {
  * Run tasks with a concurrency cap. Each task is a () => Promise<T[]>.
  * Returns a flat array of all resolved values; rejected tasks yield [].
  */
-async function batchedParallel(tasks, concurrency = CONCURRENCY, onProgress) {
-  const results = [];
+async function batchedParallel<T>(
+  tasks: Array<() => Promise<T[]>>,
+  concurrency = CONCURRENCY,
+  onProgress?: (pct: number) => void
+): Promise<T[]> {
+  const results: T[] = [];
   let completed  = 0;
 
   for (let i = 0; i < tasks.length; i += concurrency) {
@@ -115,24 +133,24 @@ async function batchedParallel(tasks, concurrency = CONCURRENCY, onProgress) {
 }
 
 // ── Auth ──────────────────────────────────────────────────────────────────────
-export async function validateConnection(instanceUrl, token) {
+export async function validateConnection(instanceUrl: string, token: string): Promise<any> {
   const { data } = await restRequest(instanceUrl, token, '/user');
   return data;
 }
 
 // ── Projects ──────────────────────────────────────────────────────────────────
-export async function fetchAllProjects(instanceUrl, token, { force = false } = {}) {
+export async function fetchAllProjects(instanceUrl: string, token: string, { force = false }: { force?: boolean } = {}): Promise<any[]> {
   const cacheKey = `projects_${instanceUrl}`;
   if (!force) {
-    const cached = sessionCache.get(cacheKey);
+    const cached = sessionCache.get<any[]>(cacheKey);
     if (cached) return cached;
   }
 
-  const projects = [];
+  const projects: any[] = [];
   let page = 1;
 
   while (true) {
-    const { data, nextPage } = await restRequest(
+    const { data, nextPage } = await restRequest<any[]>(
       instanceUrl, token,
       `/projects?membership=true&per_page=100&page=${page}&simple=true&order_by=last_activity_at`
     );
@@ -150,10 +168,10 @@ export async function fetchAllProjects(instanceUrl, token, { force = false } = {
  * Fetch all open issues + recently-closed issues (last CLOSED_ISSUE_DAYS days)
  * for one project. Merges both lists and de-dupes by iid.
  */
-async function fetchIssuesForProject(instanceUrl, token, projectId, { force = false } = {}) {
+async function fetchIssuesForProject(instanceUrl: string, token: string, projectId: string | number, { force = false }: { force?: boolean } = {}): Promise<any[]> {
   const cacheKey = `issues_${instanceUrl}_${projectId}`;
   if (!force) {
-    const cached = sessionCache.get(cacheKey);
+    const cached = sessionCache.get<any[]>(cacheKey);
     if (cached) return cached;
   }
 
@@ -172,7 +190,7 @@ async function fetchIssuesForProject(instanceUrl, token, projectId, { force = fa
 
   // De-dupe (shouldn't be needed but just in case)
   const seen = new Set();
-  const merged = [];
+  const merged: any[] = [];
   for (const issue of [...openIssues, ...closedIssues]) {
     if (!seen.has(issue.iid)) {
       seen.add(issue.iid);
@@ -184,13 +202,13 @@ async function fetchIssuesForProject(instanceUrl, token, projectId, { force = fa
   return merged;
 }
 
-async function fetchPaginatedIssues(instanceUrl, token, projectId, params = {}) {
-  const qs = new URLSearchParams({ per_page: 100, scope: 'all', ...params }).toString();
-  const issues = [];
+async function fetchPaginatedIssues(instanceUrl: string, token: string, projectId: string | number, params: Record<string, any> = {}): Promise<any[]> {
+  const qs = new URLSearchParams({ per_page: '100', scope: 'all', ...params }).toString();
+  const issues: any[] = [];
   let page = 1;
 
   while (page <= 5) {   // cap: 500 issues per project per state
-    const { data, nextPage } = await restRequest(
+    const { data, nextPage } = await restRequest<any[]>(
       instanceUrl, token,
       `/projects/${projectId}/issues?${qs}&page=${page}`
     );
@@ -203,7 +221,13 @@ async function fetchPaginatedIssues(instanceUrl, token, projectId, params = {}) 
 }
 
 // ── Bulk fetch with parallel batching ─────────────────────────────────────────
-export async function fetchAllIssues(instanceUrl, token, projectIds, onProgress, { force = false } = {}) {
+export async function fetchAllIssues(
+  instanceUrl: string,
+  token: string,
+  projectIds: Array<string | number>,
+  onProgress?: (pct: number) => void,
+  { force = false }: { force?: boolean } = {}
+): Promise<any[]> {
   const tasks = projectIds.map(
     (pid) => () => fetchIssuesForProject(instanceUrl, token, pid, { force })
   );
@@ -211,7 +235,7 @@ export async function fetchAllIssues(instanceUrl, token, projectIds, onProgress,
 }
 
 // ── Issue CRUD ────────────────────────────────────────────────────────────────
-export async function createIssue(instanceUrl, token, projectId, payload) {
+export async function createIssue(instanceUrl: string, token: string, projectId: string | number, payload: any): Promise<any> {
   const { data } = await restRequest(
     instanceUrl, token,
     `/projects/${encodeURIComponent(projectId)}/issues`,
@@ -222,7 +246,7 @@ export async function createIssue(instanceUrl, token, projectId, payload) {
   return data;
 }
 
-export async function updateIssue(instanceUrl, token, projectId, issueIid, payload) {
+export async function updateIssue(instanceUrl: string, token: string, projectId: string | number, issueIid: string | number, payload: any): Promise<any> {
   const { data } = await restRequest(
     instanceUrl, token,
     `/projects/${encodeURIComponent(projectId)}/issues/${issueIid}`,
@@ -232,7 +256,7 @@ export async function updateIssue(instanceUrl, token, projectId, issueIid, paylo
   return data;
 }
 
-export async function deleteIssue(instanceUrl, token, projectId, issueIid) {
+export async function deleteIssue(instanceUrl: string, token: string, projectId: string | number, issueIid: string | number): Promise<void> {
   await restRequest(
     instanceUrl, token,
     `/projects/${encodeURIComponent(projectId)}/issues/${issueIid}`,
@@ -241,25 +265,25 @@ export async function deleteIssue(instanceUrl, token, projectId, issueIid) {
   sessionCache.invalidate(`issues_${instanceUrl}_${projectId}`);
 }
 
-export async function closeIssue(instanceUrl, token, projectId, issueIid) {
+export async function closeIssue(instanceUrl: string, token: string, projectId: string | number, issueIid: string | number): Promise<any> {
   return updateIssue(instanceUrl, token, projectId, issueIid, { state_event: 'close' });
 }
 
-export async function reopenIssue(instanceUrl, token, projectId, issueIid) {
+export async function reopenIssue(instanceUrl: string, token: string, projectId: string | number, issueIid: string | number): Promise<any> {
   return updateIssue(instanceUrl, token, projectId, issueIid, { state_event: 'reopen' });
 }
 
 // ── Labels ────────────────────────────────────────────────────────────────────
-export async function fetchProjectLabels(instanceUrl, token, projectId) {
+export async function fetchProjectLabels(instanceUrl: string, token: string, projectId: string | number): Promise<any[]> {
   const cacheKey = `labels_${instanceUrl}_${projectId}`;
-  const cached   = sessionCache.get(cacheKey);
+  const cached   = sessionCache.get<any[]>(cacheKey);
   if (cached) return cached;
 
-  const labels = [];
+  const labels: any[] = [];
   let page = 1;
 
   while (page <= 5) {
-    const { data, nextPage } = await restRequest(
+    const { data, nextPage } = await restRequest<any[]>(
       instanceUrl, token,
       `/projects/${encodeURIComponent(projectId)}/labels?per_page=100&page=${page}`
     );
@@ -272,7 +296,7 @@ export async function fetchProjectLabels(instanceUrl, token, projectId) {
   return labels;
 }
 
-export async function createLabel(instanceUrl, token, projectId, payload) {
+export async function createLabel(instanceUrl: string, token: string, projectId: string | number, payload: any): Promise<any> {
   const { data } = await restRequest(
     instanceUrl, token,
     `/projects/${encodeURIComponent(projectId)}/labels`,
@@ -283,7 +307,7 @@ export async function createLabel(instanceUrl, token, projectId, payload) {
 }
 
 // ── Uploads (Uploads photos/files directly to GitLab project) ──────────────────
-export async function uploadProjectFile(instanceUrl, token, projectId, file, projectPath = '') {
+export async function uploadProjectFile(instanceUrl: string, token: string, projectId: string | number, file: File, projectPath = ''): Promise<any> {
   const cleanInstance = instanceUrl.replace(/\/$/, '');
   const url = `${cleanInstance}/api/v4/projects/${encodeURIComponent(projectId)}/uploads`;
   const formData = new FormData();
@@ -334,12 +358,12 @@ export async function uploadProjectFile(instanceUrl, token, projectId, file, pro
 }
 
 // ── Members ───────────────────────────────────────────────────────────────────
-export async function fetchProjectMembers(instanceUrl, token, projectId) {
+export async function fetchProjectMembers(instanceUrl: string, token: string, projectId: string | number): Promise<any[]> {
   const cacheKey = `members_${instanceUrl}_${projectId}`;
-  const cached   = sessionCache.get(cacheKey);
+  const cached   = sessionCache.get<any[]>(cacheKey);
   if (cached) return cached;
 
-  const { data } = await restRequest(
+  const { data } = await restRequest<any[]>(
     instanceUrl, token,
     `/projects/${encodeURIComponent(projectId)}/members/all?per_page=100`
   );
@@ -363,9 +387,9 @@ const WORK_ITEMS_QUERY = /* GraphQL */ `
   }
 `;
 
-export async function fetchWorkItems(instanceUrl, token, projectFullPath) {
-  const items = [];
-  let after = null, hasNextPage = true;
+export async function fetchWorkItems(instanceUrl: string, token: string, projectFullPath: string): Promise<any[]> {
+  const items: any[] = [];
+  let after: string | null = null, hasNextPage = true;
 
   while (hasNextPage) {
     const data = await graphqlRequest(instanceUrl, token, WORK_ITEMS_QUERY, {
