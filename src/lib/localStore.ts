@@ -20,6 +20,7 @@ const KEYS = {
   lastUpdateCheck:  `${PREFIX}last_update_check`,   // timestamp
   latestVersion:    `${PREFIX}latest_version`,      // latest release version string
   boardStatuses:    `${PREFIX}board_statuses`,      // board view statuses configuration
+  taskSequence:     `${PREFIX}task_sequence`,       // manual task sequence order string[]
 };
 
 export const CLOSED_CUTOFF_DAYS = 30;
@@ -388,11 +389,68 @@ export const localStore = {
     return DEFAULT_BOARD_STATUSES;
   },
 
+  // ── Task Sequence / Custom Ordering ─────────────────────────────────────────
+  getTaskSequence(): string[] {
+    return get<string[]>(KEYS.taskSequence, []) || [];
+  },
+
+  setTaskSequence(sequence: string[]): string[] {
+    set(KEYS.taskSequence, sequence);
+    return sequence;
+  },
+
+  reorderTask(draggedKey: string, targetKey: string, position: 'before' | 'after' = 'before', allKeys?: string[]): string[] {
+    let current = [...this.getTaskSequence()];
+    if (allKeys && allKeys.length > 0) {
+      // Ensure all visible keys are seeded in order if sequence is new
+      const set = new Set(current);
+      for (const k of allKeys) {
+        if (!set.has(k)) {
+          current.push(k);
+          set.add(k);
+        }
+      }
+    }
+
+    // Remove draggedKey
+    const filtered = current.filter((k) => k !== draggedKey);
+    const targetIdx = filtered.indexOf(targetKey);
+
+    if (targetIdx === -1) {
+      if (position === 'before') {
+        filtered.unshift(draggedKey);
+      } else {
+        filtered.push(draggedKey);
+      }
+    } else {
+      const insertAt = position === 'before' ? targetIdx : targetIdx + 1;
+      filtered.splice(insertAt, 0, draggedKey);
+    }
+
+    return this.setTaskSequence(filtered);
+  },
+
   // Full wipe
   clear(): void {
     Object.values(KEYS).forEach((k) => localStorage.removeItem(k));
   },
 };
+
+export function compareTaskSequence(
+  a: any,
+  b: any,
+  sequenceMap: Map<string, number>
+): number {
+  const aKey = `${a.project_id}_${a.iid}`;
+  const bKey = `${b.project_id}_${b.iid}`;
+  const aIdx = sequenceMap.has(aKey) ? sequenceMap.get(aKey)! : Number.MAX_SAFE_INTEGER;
+  const bIdx = sequenceMap.has(bKey) ? sequenceMap.get(bKey)! : Number.MAX_SAFE_INTEGER;
+  if (aIdx !== bIdx) return aIdx - bIdx;
+  // Fallback to created_at (newest first)
+  const aTime = new Date(a.created_at || a.createdAt || 0).getTime();
+  const bTime = new Date(b.created_at || b.createdAt || 0).getTime();
+  return bTime - aTime;
+}
 
 // ── Exported TASK_STATUSES (always in sync with localStore) ────────────────────
 export let TASK_STATUSES: BoardStatusConfig[] = localStore.getBoardStatuses();

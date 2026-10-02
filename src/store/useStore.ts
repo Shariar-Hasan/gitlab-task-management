@@ -102,6 +102,11 @@ export interface StoreState {
   deleteBoardStatus: (id: string) => void;
   resetBoardStatuses: () => void;
 
+  // Task Manual Sequence (Custom ordering)
+  taskSequence: string[];
+  reorderTaskSequence: (draggedKey: string, targetKey: string, position?: 'before' | 'after', allKeys?: string[]) => void;
+  setTaskSequence: (sequence: string[]) => void;
+
   // Pinned Tasks
   pinnedKeys: Set<string>;
   togglePin: (projectId: string | number, iid: string | number) => void;
@@ -771,6 +776,19 @@ const useStore = create<StoreState>((set, get) => ({
   resetBoardStatuses() {
     const list = localStore.resetBoardStatuses();
     set({ boardStatuses: [...list] });
+  },
+
+  // Task Sequence
+  taskSequence: localStore.getTaskSequence(),
+
+  reorderTaskSequence(draggedKey: string, targetKey: string, position: 'before' | 'after' = 'before', allKeys?: string[]) {
+    const updated = localStore.reorderTask(draggedKey, targetKey, position, allKeys);
+    set({ taskSequence: [...updated] });
+  },
+
+  setTaskSequence(sequence: string[]) {
+    const updated = localStore.setTaskSequence(sequence);
+    set({ taskSequence: [...updated] });
   },
 
   async setTaskStatus(projectId: string | number, iid: string | number, newStatus: string): Promise<void> {

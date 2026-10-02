@@ -1,7 +1,7 @@
 import React, { useEffect } from 'react';
 import { GitBranch, Settings as SettingsIcon } from 'lucide-react';
 import Dashboard from './components/Dashboard';
-import Settings from './components/Settings';
+import Settings, { SettingsModal } from './components/Settings';
 import { ToastProvider, ConfirmProvider } from './components/ui/overlay';
 import { Spinner } from './components/ui/index';
 import useStore from './store/useStore';
@@ -75,24 +75,43 @@ function WelcomeScreen({ onSetup }: { onSetup: () => void }) {
 function AppContent() {
   const { isAuthenticated, activeView, setActiveView, loadSettings } = useStore();
   const [loading, setLoading] = React.useState(true);
+  const [settingsOpen, setSettingsOpen] = React.useState(false);
 
   useEffect(() => {
     loadSettings().finally(() => setLoading(false));
   }, [loadSettings]);
 
+  // Sync if activeView was set to 'settings'
+  useEffect(() => {
+    if (activeView === 'settings') {
+      setSettingsOpen(true);
+    }
+  }, [activeView]);
+
+  const handleCloseSettings = () => {
+    setSettingsOpen(false);
+    if (activeView === 'settings') {
+      setActiveView('dashboard');
+    }
+  };
+
   if (loading) return <LoadingScreen />;
 
-  if (activeView === 'settings') {
+  if (!isAuthenticated) {
     return (
-      <Settings onBack={isAuthenticated ? () => setActiveView('dashboard') : undefined} />
+      <>
+        <WelcomeScreen onSetup={() => setSettingsOpen(true)} />
+        <SettingsModal open={settingsOpen} onClose={handleCloseSettings} />
+      </>
     );
   }
 
-  if (!isAuthenticated) {
-    return <WelcomeScreen onSetup={() => setActiveView('settings')} />;
-  }
-
-  return <Dashboard onSettings={() => setActiveView('settings')} />;
+  return (
+    <>
+      <Dashboard onSettings={() => setSettingsOpen(true)} />
+      <SettingsModal open={settingsOpen} onClose={handleCloseSettings} />
+    </>
+  );
 }
 
 // ── Root ──────────────────────────────────────────────────────────────────────

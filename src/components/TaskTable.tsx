@@ -10,14 +10,14 @@ import {
   Edit2, Trash2, Check, X, ChevronLeft, ChevronRight,
   MoreHorizontal, CheckCircle2, Circle, Pin, PinOff,
   Tag, UserPlus, Calendar, Search, Plus, Loader2,
-  Users, CheckSquare, Copy,
+  Users, CheckSquare, Copy, GripVertical,
 } from 'lucide-react';
 import { Button, Badge, Avatar, Spinner } from './ui/index';
 import { DropdownMenu, DropdownItem, DropdownSeparator, useConfirm, Modal, ModalHeader, ModalBody, ModalFooter } from './ui/overlay';
 import { useToast } from './ui/overlay';
 import useStore from '../store/useStore';
 import { cn, formatDate, getDueDateInfo, getDueDateBadgeClass, getVisibleGlobalLabels } from '../lib/utils';
-import { TASK_STATUSES, getEffectiveStatus } from '../lib/localStore';
+import { TASK_STATUSES, getEffectiveStatus, compareTaskSequence } from '../lib/localStore';
 
 const PRESET_COLORS = [
   '#ef4444', '#f97316', '#f59e0b', '#10b981', '#06b6d4',
@@ -673,8 +673,12 @@ function InlineTitle({ value, onSave }: { value: string; onSave: (val: string) =
   );
 
   return (
-    <div className="group flex items-center gap-1.5 cursor-pointer" onClick={() => setEditing(true)}>
-      <span className="text-sm text-[var(--text-1)] leading-tight line-clamp-2 flex-1">{value}</span>
+    <div
+      className="group flex items-center gap-1.5 cursor-pointer"
+      onClick={() => setEditing(true)}
+      title={value}
+    >
+      <span className="text-sm text-[var(--text-1)] leading-tight line-clamp-2 flex-1" title={value}>{value}</span>
       <Edit2 className="h-3 w-3 text-[var(--border)] group-hover:text-[var(--text-3)] opacity-0 group-hover:opacity-100 shrink-0 transition-all" />
     </div>
   );
@@ -687,10 +691,21 @@ function StatusCell({ issue }: { issue: any }) {
   const ref = useRef<HTMLButtonElement>(null);
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
-  const { customStatuses, setTaskStatus } = useStore();
+  const { customStatuses, setTaskStatus, boardStatuses } = useStore();
 
+  const allStatuses = boardStatuses?.length ? boardStatuses : TASK_STATUSES;
   const currentStatusId = getEffectiveStatus(issue, customStatuses);
-  const currentStatus = TASK_STATUSES.find((s) => s.id === currentStatusId) || TASK_STATUSES[0];
+  const currentStatus = allStatuses.find((s) => s.id === currentStatusId) || allStatuses[0] || { id: currentStatusId, label: currentStatusId, color: '#64748b' };
+
+  // Only show enabled statuses in the selectable dropdown
+  const selectableStatuses = useMemo(() => {
+    const enabled = allStatuses.filter((s) => s.enabled);
+    if (currentStatusId && !enabled.some((s) => s.id === currentStatusId)) {
+      const found = allStatuses.find((s) => s.id === currentStatusId);
+      if (found) return [...enabled, found];
+    }
+    return enabled.length > 0 ? enabled : allStatuses;
+  }, [allStatuses, currentStatusId]);
 
   const handleSelect = async (statusId: string) => {
     setOpen(false);
@@ -732,7 +747,7 @@ function StatusCell({ issue }: { issue: any }) {
             Change Status
           </p>
           <div className="space-y-0.5 mt-1">
-            {TASK_STATUSES.map((s) => {
+            {selectableStatuses.map((s) => {
               const active = s.id === currentStatusId;
               return (
                 <button
@@ -1207,17 +1222,34 @@ interface TaskTableRowProps {
   row: Row<any>;
   isPinned: boolean;
   compact?: boolean;
+  isDragging?: boolean;
+  dragOverPos?: 'before' | 'after' | null;
+  onDragStart?: (e: React.DragEvent, row: Row<any>) => void;
+  onDragOver?: (e: React.DragEvent, row: Row<any>) => void;
+  onDragLeave?: (e: React.DragEvent, row: Row<any>) => void;
+  onDrop?: (e: React.DragEvent, row: Row<any>) => void;
 }
 
 const TaskTableRow = React.memo(
-  function TaskTableRow({ row, isPinned, compact }: TaskTableRowProps) {
+  function TaskTableRow({
+    row, isPinned, compact, isDragging, dragOverPos,
+    onDragStart, onDragOver, onDragLeave, onDrop
+  }: TaskTableRowProps) {
     return (
       <tr
         key={row.id}
+        draggable
+        onDragStart={(e) => onDragStart?.(e, row)}
+        onDragOver={(e) => onDragOver?.(e, row)}
+        onDragLeave={(e) => onDragLeave?.(e, row)}
+        onDrop={(e) => onDrop?.(e, row)}
         className={cn(
-          'group border-b border-[var(--border)] hover:bg-[var(--surface)] transition-all duration-200 theme-transition',
+          'group border-b border-[var(--border)] hover:bg-[var(--surface)] transition-all duration-150 theme-transition relative',
           row.getIsSelected() && 'bg-[var(--accent-muted)]',
-          isPinned && 'border-l-2 border-l-[var(--accent)] bg-[var(--surface-2)]/30 shadow-xs'
+          isPinned && 'border-l-2 border-l-[var(--accent)] bg-[var(--surface-2)]/30 shadow-xs',
+          isDragging && 'opacity-30 bg-[var(--accent-muted)]/20',
+          dragOverPos === 'before' && 'border-t-2 border-t-[var(--accent)] shadow-xs',
+          dragOverPos === 'after' && 'border-b-2 border-b-[var(--accent)] shadow-xs'
         )}
       >
         {row.getVisibleCells().map((cell) => (
@@ -1233,7 +1265,9 @@ const TaskTableRow = React.memo(
       prev.row.original === next.row.original &&
       prev.row.getIsSelected() === next.row.getIsSelected() &&
       prev.isPinned === next.isPinned &&
-      prev.compact === next.compact
+      prev.compact === next.compact &&
+      prev.isDragging === next.isDragging &&
+      prev.dragOverPos === next.dragOverPos
     );
   }
 );
@@ -1253,11 +1287,20 @@ export default function TaskTable({ onEdit }: TaskTableProps) {
     pinnedKeys, togglePin,
     bulkCloseIssues, bulkAssignToMe,
     globalLabels, appSettings, customStatuses,
+    taskSequence, reorderTaskSequence,
   } = useStore();
   const toast = useToast();
   const confirm = useConfirm();
   const [rowSelection, setRowSelection] = useState<Record<string, boolean>>({});
-  const [sorting, setSorting] = useState<SortingState>([{ id: 'created_at', desc: true }]);
+  const [sorting, setSorting] = useState<SortingState>([]);
+  const [draggingKey, setDraggingKey] = useState<string | null>(null);
+  const [dragOverTarget, setDragOverTarget] = useState<{ key: string; pos: 'before' | 'after' } | null>(null);
+
+  const sequenceMap = useMemo(() => {
+    const map = new Map<string, number>();
+    (taskSequence || []).forEach((k, idx) => map.set(k, idx));
+    return map;
+  }, [taskSequence]);
 
   const projectMap = useMemo(() => {
     const m: Record<string, any> = {};
@@ -1312,14 +1355,19 @@ export default function TaskTable({ onEdit }: TaskTableProps) {
         i.assignees?.some((a: any) => (a.name || a.username)?.toLowerCase().includes(q))
       );
     }
-    const sortCol = sorting[0]?.id || 'created_at';
+    const sortCol = sorting[0]?.id;
     const sortDesc = sorting[0]?.desc ?? true;
 
-    // Pinned to top, then sorted by active sort column
+    // Pinned to top, then sorted by active sort column (or manual sequence by default)
     return [...data].sort((a, b) => {
       const aPinned = pinnedKeys.has(`${a.project_id}_${a.iid}`) ? 0 : 1;
       const bPinned = pinnedKeys.has(`${b.project_id}_${b.iid}`) ? 0 : 1;
       if (aPinned !== bPinned) return aPinned - bPinned;
+
+      // If no explicit column header sort is active, follow the manual sequence!
+      if (!sortCol) {
+        return compareTaskSequence(a, b, sequenceMap);
+      }
 
       let cmp = 0;
       if (sortCol === 'title') {
@@ -1345,7 +1393,7 @@ export default function TaskTable({ onEdit }: TaskTableProps) {
 
       return sortDesc ? -cmp : cmp;
     });
-  }, [issues, filterProjects, filterStatus, filterLabels, globalFilter, projectMap, pinnedKeys, globalLabels, customStatuses, sorting, assignedToMe, currentUser, projectOverrides]);
+  }, [issues, filterProjects, filterStatus, filterLabels, globalFilter, projectMap, pinnedKeys, globalLabels, customStatuses, sorting, assignedToMe, currentUser, projectOverrides, sequenceMap]);
 
   const handleUpdate = useCallback(async (issue: any, payload: any) => {
     try { await updateTask(issue.project_id, issue.iid, payload); }
@@ -1363,9 +1411,9 @@ export default function TaskTable({ onEdit }: TaskTableProps) {
   }, [toggleTaskState, toast]);
 
   const columns: ColumnDef<any>[] = useMemo(() => [
-    // ── Checkbox & Pin ──
+    // ── Checkbox & Pin & Drag Handle ──
     {
-      id: 'select', size: 68, enableSorting: false,
+      id: 'select', size: 84, enableSorting: false,
       header: ({ table }) => (
         <div className="flex items-center gap-1.5">
           <input type="checkbox" className="h-4 w-4 rounded accent-[var(--accent)] cursor-pointer"
@@ -1378,7 +1426,13 @@ export default function TaskTable({ onEdit }: TaskTableProps) {
       cell: ({ row }) => {
         const isPinned = pinnedKeys.has(`${row.original.project_id}_${row.original.iid}`);
         return (
-          <div className="flex items-center gap-1.5">
+          <div className="flex items-center gap-1">
+            <span
+              title="Drag to reorder sequence"
+              className="text-[var(--text-3)] opacity-0 group-hover:opacity-70 hover:!opacity-100 hover:text-[var(--accent)] cursor-grab active:cursor-grabbing transition-all shrink-0 p-0.5"
+            >
+              <GripVertical className="h-3.5 w-3.5" />
+            </span>
             <input type="checkbox" className="h-4 w-4 rounded accent-[var(--accent)] cursor-pointer"
               checked={row.getIsSelected()}
               onChange={row.getToggleSelectedHandler()}
@@ -1561,9 +1615,61 @@ export default function TaskTable({ onEdit }: TaskTableProps) {
     getPaginationRowModel: getPaginationRowModel(),
     initialState: {
       pagination: { pageSize: 25 },
-      sorting: [{ id: 'created_at', desc: true }],
+      sorting: [],
     },
   });
+
+  const handleRowDragStart = useCallback((e: React.DragEvent, row: Row<any>) => {
+    const key = `${row.original.project_id}_${row.original.iid}`;
+    setDraggingKey(key);
+    e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.setData('text/plain', key);
+  }, []);
+
+  const handleRowDragOver = useCallback((e: React.DragEvent, row: Row<any>) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    const key = `${row.original.project_id}_${row.original.iid}`;
+    if (!draggingKey || key === draggingKey) return;
+
+    const rect = e.currentTarget.getBoundingClientRect();
+    const midY = rect.top + rect.height / 2;
+    const pos = e.clientY < midY ? 'before' : 'after';
+
+    setDragOverTarget((prev) => {
+      if (prev?.key === key && prev?.pos === pos) return prev;
+      return { key, pos };
+    });
+  }, [draggingKey]);
+
+  const handleRowDragLeave = useCallback((e: React.DragEvent, row: Row<any>) => {
+    const target = e.currentTarget as HTMLElement;
+    if (!target.contains(e.relatedTarget as Node)) {
+      const key = `${row.original.project_id}_${row.original.iid}`;
+      setDragOverTarget((prev) => (prev?.key === key ? null : prev));
+    }
+  }, []);
+
+  const handleRowDrop = useCallback((e: React.DragEvent, row: Row<any>) => {
+    e.preventDefault();
+    const targetKey = `${row.original.project_id}_${row.original.iid}`;
+    if (!draggingKey || draggingKey === targetKey) {
+      setDraggingKey(null);
+      setDragOverTarget(null);
+      return;
+    }
+
+    const pos = dragOverTarget?.pos || 'before';
+    const allVisibleKeys = table.getRowModel().rows.map((r) => `${r.original.project_id}_${r.original.iid}`);
+
+    reorderTaskSequence(draggingKey, targetKey, pos, allVisibleKeys);
+    if (sorting.length > 0) {
+      setSorting([]);
+    }
+    toast({ type: 'success', message: '✓ Sequence updated' });
+    setDraggingKey(null);
+    setDragOverTarget(null);
+  }, [draggingKey, dragOverTarget, table, reorderTaskSequence, sorting, toast]);
 
   const selectedRows = table.getSelectedRowModel().rows;
   const hasSelection = selectedRows.length > 0;
@@ -1651,14 +1757,23 @@ export default function TaskTable({ onEdit }: TaskTableProps) {
                 </td>
               </tr>
             ) : (
-              table.getRowModel().rows.map((row) => (
-                <TaskTableRow
-                  key={row.id}
-                  row={row}
-                  isPinned={pinnedKeys.has(`${row.original.project_id}_${row.original.iid}`)}
-                  compact={appSettings?.compactTable}
-                />
-              ))
+              table.getRowModel().rows.map((row) => {
+                const key = `${row.original.project_id}_${row.original.iid}`;
+                return (
+                  <TaskTableRow
+                    key={row.id}
+                    row={row}
+                    isPinned={pinnedKeys.has(key)}
+                    compact={appSettings?.compactTable}
+                    isDragging={draggingKey === key}
+                    dragOverPos={dragOverTarget?.key === key ? dragOverTarget.pos : null}
+                    onDragStart={handleRowDragStart}
+                    onDragOver={handleRowDragOver}
+                    onDragLeave={handleRowDragLeave}
+                    onDrop={handleRowDrop}
+                  />
+                );
+              })
             )}
           </tbody>
         </table>

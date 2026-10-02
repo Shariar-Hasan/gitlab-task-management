@@ -4,7 +4,7 @@ import {
 } from 'lucide-react';
 import { cn } from '../lib/utils';
 import useStore from '../store/useStore';
-import { TASK_STATUSES, getEffectiveStatus, type TaskStatus } from '../lib/localStore';
+import { TASK_STATUSES, getEffectiveStatus, compareTaskSequence, type TaskStatus } from '../lib/localStore';
 import { Button } from './ui/index';
 import { DropdownMenu, DropdownItem, DropdownSeparator, useToast } from './ui/overlay';
 
@@ -41,14 +41,22 @@ interface TaskCardProps {
   issue: any;
   status: string;
   isDragging: boolean;
+  dragOverPos?: 'before' | 'after' | null;
   onDragStart: () => void;
+  onDragOver?: (e: React.DragEvent, issue: any) => void;
+  onDragLeave?: (e: React.DragEvent, issue: any) => void;
+  onDrop?: (e: React.DragEvent, issue: any, statusId: string) => void;
   onEdit: (issue: any) => void;
   globalLabels: any[];
 }
 
 // ── Task Card ──────────────────────────────────────────────────────────────────
 const TaskCard = React.memo(
-  function TaskCard({ issue, status, isDragging, onDragStart, onEdit, globalLabels }: TaskCardProps) {
+  function TaskCard({
+    issue, status, isDragging, dragOverPos,
+    onDragStart, onDragOver, onDragLeave, onDrop,
+    onEdit, globalLabels
+  }: TaskCardProps) {
     const cardRef = useRef<HTMLDivElement>(null);
     const dueInfo = getDueInfo(issue.due_date);
     const assignees = issue.assignees || (issue.assignee ? [issue.assignee] : []);
@@ -65,13 +73,18 @@ const TaskCard = React.memo(
         ref={cardRef}
         draggable
         onDragStart={onDragStart}
+        onDragOver={(e) => onDragOver?.(e, issue)}
+        onDragLeave={(e) => onDragLeave?.(e, issue)}
+        onDrop={(e) => onDrop?.(e, issue, status)}
         className={cn(
-          'group relative p-3 rounded-xl border bg-[var(--surface)] shadow-xs',
+          'group relative p-3 rounded-xl border bg-[var(--surface)] shadow-xs select-none',
           'cursor-grab active:cursor-grabbing transition-all duration-150',
           'hover:border-[var(--accent)]/40 hover:shadow-md',
           isDragging
-            ? 'opacity-40 scale-95 border-[var(--accent)]'
-            : 'border-[var(--border)] hover:translate-y-[-1px]'
+            ? 'opacity-30 scale-95 border-[var(--accent)]'
+            : 'border-[var(--border)] hover:translate-y-[-1px]',
+          dragOverPos === 'before' && 'border-t-2 border-t-[var(--accent)] shadow-md',
+          dragOverPos === 'after' && 'border-b-2 border-b-[var(--accent)] shadow-md'
         )}
         onClick={() => onEdit(issue)}
       >
@@ -90,7 +103,10 @@ const TaskCard = React.memo(
         </div>
 
         {/* Title */}
-        <p className="text-xs font-medium text-[var(--text-1)] leading-relaxed line-clamp-2 mb-2.5">
+        <p
+          className="text-xs font-medium text-[var(--text-1)] leading-relaxed line-clamp-2 mb-2.5"
+          title={issue.title}
+        >
           {issue.title}
         </p>
 
@@ -147,6 +163,7 @@ const TaskCard = React.memo(
       prev.issue === next.issue &&
       prev.status === next.status &&
       prev.isDragging === next.isDragging &&
+      prev.dragOverPos === next.dragOverPos &&
       prev.globalLabels === next.globalLabels
     );
   }
@@ -159,10 +176,14 @@ interface BoardColumnProps {
   globalLabels: any[];
   draggingIssueId: string | null;
   draggingStatus?: string;
+  dragOverTarget?: { key: string; pos: 'before' | 'after' } | null;
   onDragStart: (issue: any, statusId: string) => void;
-  onDrop: (statusId: string) => void;
-  onDragOver: (statusId: string) => void;
-  onDragLeave: () => void;
+  onCardDragOver: (e: React.DragEvent, issue: any) => void;
+  onCardDragLeave: (e: React.DragEvent, issue: any) => void;
+  onCardDrop: (e: React.DragEvent, targetIssue: any, statusId: string) => void;
+  onColumnDrop: (statusId: string) => void;
+  onColumnDragOver: (statusId: string) => void;
+  onColumnDragLeave: () => void;
   isDragTarget: boolean;
   isUpdating: boolean;
 }
@@ -170,8 +191,9 @@ interface BoardColumnProps {
 // ── Column ──────────────────────────────────────────────────────────────────────
 const BoardColumn = React.memo(function BoardColumn({
   status, tasks, onEdit, globalLabels,
-  draggingIssueId, draggingStatus,
-  onDragStart, onDrop, onDragOver, onDragLeave,
+  draggingIssueId, draggingStatus, dragOverTarget,
+  onDragStart, onCardDragOver, onCardDragLeave, onCardDrop,
+  onColumnDrop, onColumnDragOver, onColumnDragLeave,
   isDragTarget,
   isUpdating,
 }: BoardColumnProps) {
@@ -185,9 +207,9 @@ const BoardColumn = React.memo(function BoardColumn({
           ? 'border-[var(--accent)]/50 bg-[var(--accent-muted)]/30 shadow-lg shadow-[var(--accent)]/10'
           : 'border-[var(--border)] bg-[var(--surface-2)]/60'
       )}
-      onDragOver={(e) => { e.preventDefault(); onDragOver(status.id); }}
-      onDragLeave={onDragLeave}
-      onDrop={(e) => { e.preventDefault(); onDrop(status.id); }}
+      onDragOver={(e) => { e.preventDefault(); onColumnDragOver(status.id); }}
+      onDragLeave={onColumnDragLeave}
+      onDrop={(e) => { e.preventDefault(); onColumnDrop(status.id); }}
     >
       {/* Column Header */}
       <div className="flex items-center justify-between px-4 py-3 border-b border-[var(--border)]">
@@ -219,17 +241,24 @@ const BoardColumn = React.memo(function BoardColumn({
           </div>
         )}
 
-        {tasks.map((issue) => (
-          <TaskCard
-            key={`${issue.project_id}_${issue.iid}`}
-            issue={issue}
-            status={status.id}
-            isDragging={draggingIssueId === `${issue.project_id}_${issue.iid}`}
-            onDragStart={() => onDragStart(issue, status.id)}
-            onEdit={onEdit}
-            globalLabels={globalLabels}
-          />
-        ))}
+        {tasks.map((issue) => {
+          const key = `${issue.project_id}_${issue.iid}`;
+          return (
+            <TaskCard
+              key={key}
+              issue={issue}
+              status={status.id}
+              isDragging={draggingIssueId === key}
+              dragOverPos={dragOverTarget?.key === key ? dragOverTarget.pos : null}
+              onDragStart={() => onDragStart(issue, status.id)}
+              onDragOver={onCardDragOver}
+              onDragLeave={onCardDragLeave}
+              onDrop={onCardDrop}
+              onEdit={onEdit}
+              globalLabels={globalLabels}
+            />
+          );
+        })}
 
         {/* Drop Zone at bottom when dragging from another column */}
         {isDragTarget && tasks.length > 0 && draggingStatus !== status.id && (
@@ -254,12 +283,14 @@ export default function BoardView({ onEdit }: BoardViewProps) {
     projectOverrides, currentUser,
     boardStatuses, updateBoardStatus,
     setTaskStatus,
+    taskSequence, reorderTaskSequence,
   } = useStore();
 
   const toast = useToast();
 
   const [dragging, setDragging] = useState<{ issue: any; fromStatus: string } | null>(null);
   const [dragTarget, setDragTarget] = useState<string | null>(null);
+  const [dragOverTarget, setDragOverTarget] = useState<{ key: string; pos: 'before' | 'after' } | null>(null);
   const [updatingStatus, setUpdatingStatus] = useState<string | null>(null);
   const [showColMenu, setShowColMenu] = useState(false);
   const colMenuRef = useRef<HTMLDivElement>(null);
@@ -354,7 +385,13 @@ export default function BoardView({ onEdit }: BoardViewProps) {
     return result;
   }, [issues, filterProjects, filterStatus, filterLabels, assignedToMe, globalFilter, customStatuses, projectOverrides, currentUser]);
 
-  // Group by effective status
+  const sequenceMap = useMemo(() => {
+    const map = new Map<string, number>();
+    (taskSequence || []).forEach((k, idx) => map.set(k, idx));
+    return map;
+  }, [taskSequence]);
+
+  // Group by effective status and sort by manual sequence
   const columnTasks = useMemo(() => {
     const map: Record<string, any[]> = {};
     for (const s of boardStatuses) {
@@ -372,40 +409,115 @@ export default function BoardView({ onEdit }: BoardViewProps) {
         }
       }
     }
+    // Sort each column's tasks according to sequenceMap
+    for (const key of Object.keys(map)) {
+      map[key].sort((a, b) => compareTaskSequence(a, b, sequenceMap));
+    }
     return map;
-  }, [filteredIssues, customStatuses, boardStatuses]);
+  }, [filteredIssues, customStatuses, boardStatuses, sequenceMap]);
 
   const handleDragStart = useCallback((issue: any, fromStatus: string) => {
     setDragging({ issue, fromStatus });
   }, []);
 
-  const handleDragOver = useCallback((statusId: string) => {
+  const handleColumnDragOver = useCallback((statusId: string) => {
     setDragTarget(statusId);
   }, []);
 
-  const handleDragLeave = useCallback(() => {
+  const handleColumnDragLeave = useCallback(() => {
     // Keep target until drop or another dragover
   }, []);
 
-  const handleDrop = useCallback(async (toStatus: string) => {
+  const handleCardDragOver = useCallback((e: React.DragEvent, issue: any) => {
+    e.preventDefault();
+    e.stopPropagation();
+    e.dataTransfer.dropEffect = 'move';
+    const key = `${issue.project_id}_${issue.iid}`;
+    if (!dragging || key === `${dragging.issue.project_id}_${dragging.issue.iid}`) return;
+
+    const rect = e.currentTarget.getBoundingClientRect();
+    const midY = rect.top + rect.height / 2;
+    const pos = e.clientY < midY ? 'before' : 'after';
+
+    setDragOverTarget((prev) => {
+      if (prev?.key === key && prev?.pos === pos) return prev;
+      return { key, pos };
+    });
+  }, [dragging]);
+
+  const handleCardDragLeave = useCallback((e: React.DragEvent, issue: any) => {
+    const target = e.currentTarget as HTMLElement;
+    if (!target.contains(e.relatedTarget as Node)) {
+      const key = `${issue.project_id}_${issue.iid}`;
+      setDragOverTarget((prev) => (prev?.key === key ? null : prev));
+    }
+  }, []);
+
+  const handleCardDrop = useCallback(async (e: React.DragEvent, targetIssue: any, toStatus: string) => {
+    e.preventDefault();
+    e.stopPropagation();
     if (!dragging) return;
     const { issue, fromStatus } = dragging;
+    const draggedKey = `${issue.project_id}_${issue.iid}`;
+    const targetKey = `${targetIssue.project_id}_${targetIssue.iid}`;
+
+    const pos = dragOverTarget?.pos || 'before';
     setDragging(null);
     setDragTarget(null);
+    setDragOverTarget(null);
 
-    if (fromStatus === toStatus) return;
+    const allVisibleKeys = filteredIssues.map((i) => `${i.project_id}_${i.iid}`);
 
-    setUpdatingStatus(toStatus);
-    try {
-      await setTaskStatus(issue.project_id, issue.iid, toStatus);
-      const stObj = boardStatuses.find((s) => s.id === toStatus);
-      toast({ type: 'success', message: `✓ Moved to ${stObj?.label || toStatus}` });
-    } catch (err: any) {
-      toast({ type: 'error', message: `Failed to move task: ${err.message}` });
-    } finally {
-      setUpdatingStatus(null);
+    // Update status if moved to a different column
+    if (fromStatus !== toStatus) {
+      setUpdatingStatus(toStatus);
+      try {
+        await setTaskStatus(issue.project_id, issue.iid, toStatus);
+        const stObj = boardStatuses.find((s) => s.id === toStatus);
+        toast({ type: 'success', message: `✓ Moved to ${stObj?.label || toStatus}` });
+      } catch (err: any) {
+        toast({ type: 'error', message: `Failed to move task: ${err.message}` });
+      } finally {
+        setUpdatingStatus(null);
+      }
+    } else {
+      toast({ type: 'success', message: '✓ Sequence updated' });
     }
-  }, [dragging, setTaskStatus, boardStatuses, toast]);
+
+    reorderTaskSequence(draggedKey, targetKey, pos, allVisibleKeys);
+  }, [dragging, dragOverTarget, filteredIssues, setTaskStatus, boardStatuses, reorderTaskSequence, toast]);
+
+  const handleColumnDrop = useCallback(async (toStatus: string) => {
+    if (!dragging) return;
+    const { issue, fromStatus } = dragging;
+    const draggedKey = `${issue.project_id}_${issue.iid}`;
+
+    setDragging(null);
+    setDragTarget(null);
+    setDragOverTarget(null);
+
+    const allVisibleKeys = filteredIssues.map((i) => `${i.project_id}_${i.iid}`);
+
+    if (fromStatus !== toStatus) {
+      setUpdatingStatus(toStatus);
+      try {
+        await setTaskStatus(issue.project_id, issue.iid, toStatus);
+        const stObj = boardStatuses.find((s) => s.id === toStatus);
+        toast({ type: 'success', message: `✓ Moved to ${stObj?.label || toStatus}` });
+      } catch (err: any) {
+        toast({ type: 'error', message: `Failed to move task: ${err.message}` });
+      } finally {
+        setUpdatingStatus(null);
+      }
+    }
+
+    // Place at end of column tasks in sequence
+    const colTasks = columnTasks[toStatus] || [];
+    const lastColTask = colTasks[colTasks.length - 1];
+    if (lastColTask && `${lastColTask.project_id}_${lastColTask.iid}` !== draggedKey) {
+      reorderTaskSequence(draggedKey, `${lastColTask.project_id}_${lastColTask.iid}`, 'after', allVisibleKeys);
+    }
+  }, [dragging, columnTasks, filteredIssues, setTaskStatus, boardStatuses, reorderTaskSequence, toast]);
 
   const draggingId = dragging ? `${dragging.issue.project_id}_${dragging.issue.iid}` : null;
 
@@ -488,10 +600,14 @@ export default function BoardView({ onEdit }: BoardViewProps) {
               globalLabels={globalLabels || []}
               draggingIssueId={draggingId}
               draggingStatus={dragging?.fromStatus}
+              dragOverTarget={dragOverTarget}
               onDragStart={handleDragStart}
-              onDrop={handleDrop}
-              onDragOver={handleDragOver}
-              onDragLeave={handleDragLeave}
+              onCardDragOver={handleCardDragOver}
+              onCardDragLeave={handleCardDragLeave}
+              onCardDrop={handleCardDrop}
+              onColumnDrop={handleColumnDrop}
+              onColumnDragOver={handleColumnDragOver}
+              onColumnDragLeave={handleColumnDragLeave}
               isDragTarget={dragTarget === status.id && dragging?.fromStatus !== status.id}
               isUpdating={updatingStatus === status.id}
             />

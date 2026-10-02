@@ -55,6 +55,7 @@ export default function Dashboard({ onSettings }: DashboardProps) {
     setGlobalFilter, setFilterProjects, setFilterStatus, setFilterLabels, setAssignedToMe,
     initializeData, refreshAll, globalLabels, appSettings, customStatuses,
     viewMode, setViewMode, updateAvailable, latestVersion, checkForUpdate,
+    boardStatuses,
   } = useStore();
 
   const confirm = useConfirm();
@@ -166,12 +167,15 @@ export default function Dashboard({ onSettings }: DashboardProps) {
   }, [enabledProjects, projectOverrides]);
 
   const statusOptions = useMemo(() => {
-    return TASK_STATUSES.map((s) => ({
-      value: s.id,
-      label: s.label,
-      color: s.color,
-    }));
-  }, []);
+    const list = boardStatuses?.length ? boardStatuses : TASK_STATUSES;
+    return list
+      .filter((s) => s.enabled)
+      .map((s) => ({
+        value: s.id,
+        label: s.label,
+        color: s.color,
+      }));
+  }, [boardStatuses]);
 
   const labelOptions = useMemo(() => {
     return allLabels.map((l) => ({

@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { Plus, X, Tag, Check, Calendar, FolderGit2, CircleDot, User, Loader2, Users, FileText } from 'lucide-react';
 import { Modal, ModalHeader, ModalBody, ModalFooter } from './ui/overlay';
 import { Button, Input, Label, Select, Avatar } from './ui/index';
-import MarkdownEditor from './ui/MarkdownEditor';
+import HtmlEditor, { normalizeToHtml } from './ui/HtmlEditor';
 import FilterSelect from './ui/FilterSelect';
 import { useToast } from './ui/overlay';
 import useStore from '../store/useStore';
@@ -19,7 +19,7 @@ export default function TaskModal({ open, onClose, editIssue = null }: TaskModal
   const {
     projects, projectOverrides, filterProjects, createTask, updateTask, moveTask, globalLabels,
     customStatuses, setTaskStatus, fetchMembersForProject,
-    currentUser, addGlobalLabel, appSettings,
+    currentUser, addGlobalLabel, appSettings, boardStatuses,
   } = useStore();
   const toast = useToast();
   const isEditing = !!editIssue;
@@ -105,7 +105,7 @@ export default function TaskModal({ open, onClose, editIssue = null }: TaskModal
 
         setForm({
           title: editIssue.title || '',
-          description: editIssue.description || '',
+          description: normalizeToHtml(editIssue.description || ''),
           project_id: String(editIssue.project_id || ''),
           due_date: editIssue.due_date || '',
           status: effStatus,
@@ -187,7 +187,7 @@ export default function TaskModal({ open, onClose, editIssue = null }: TaskModal
     if (form.description.trim() && !window.confirm('Apply template? This will replace your current description.')) {
       return;
     }
-    setField('description', tpl.content);
+    setField('description', normalizeToHtml(tpl.content));
     toast({ type: 'info', message: `Loaded template "${tpl.name}"` });
   };
 
@@ -247,6 +247,12 @@ export default function TaskModal({ open, onClose, editIssue = null }: TaskModal
   const canSubmit = form.title.trim().length > 0 && (isEditing || form.project_id);
   const selectedProj = projects.find((p) => String(p.id) === String(form.project_id));
   const dueInfo = form.due_date ? getDueDateInfo(form.due_date) : null;
+
+  const availableStatuses = useMemo(() => {
+    const list = boardStatuses?.length ? boardStatuses : TASK_STATUSES;
+    const enabled = list.filter((s) => s.enabled || s.id === form.status);
+    return enabled.length > 0 ? enabled : list;
+  }, [boardStatuses, form.status]);
 
   return (
     <Modal open={open} onClose={onClose} size="2xl">
@@ -313,12 +319,12 @@ export default function TaskModal({ open, onClose, editIssue = null }: TaskModal
               </div>
             )}
           </div>
-          <MarkdownEditor
+          <HtmlEditor
             value={form.description}
             onChange={(val) => setField('description', val)}
             projectId={form.project_id}
-            placeholder="Add description, checklist, or acceptance criteria (Markdown supported). You can paste or drop photos here to upload directly to GitLab..."
-            rows={5}
+            placeholder="Type your task description, notes, or HTML. Format with headings, tables, bold, lists, and paste or drop photos to upload directly to GitLab..."
+            minHeight="170px"
           />
         </div>
 
@@ -361,7 +367,7 @@ export default function TaskModal({ open, onClose, editIssue = null }: TaskModal
               onChange={(e) => setField('status', e.target.value)}
               className="h-9 text-xs pl-3"
             >
-              {TASK_STATUSES.map((s) => (
+              {availableStatuses.map((s) => (
                 <option key={s.id} value={s.id}>
                   {s.label}
                 </option>

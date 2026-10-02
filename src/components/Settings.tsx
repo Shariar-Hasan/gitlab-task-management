@@ -9,7 +9,7 @@ import {
   ToggleRight, FileText, Sparkles, LayoutGrid,
 } from 'lucide-react';
 import { Button, Input, Card, Badge, ThemeToggle, Switch } from './ui/index';
-import { useToast } from './ui/overlay';
+import { useToast, Modal } from './ui/overlay';
 import useStore from '../store/useStore';
 import { cn, formatTime, getVisibleGlobalLabels } from '../lib/utils';
 import { localStore, TASK_STATUSES } from '../lib/localStore';
@@ -1023,7 +1023,7 @@ function BoardStatusesSettings() {
 
 // ── Task Defaults Settings ────────────────────────────────────────────────────
 function TaskSettings() {
-  const { appSettings, updateAppSettings, currentUser, pinnedKeys, projects, globalLabels } = useStore();
+  const { appSettings, updateAppSettings, currentUser, pinnedKeys, projects, globalLabels, boardStatuses } = useStore();
   const toast = useToast();
 
   const defProjects = appSettings.defaultFilterProjects || [];
@@ -1116,7 +1116,7 @@ function TaskSettings() {
             >
               All Status
             </button>
-            {TASK_STATUSES.map((s) => {
+            {((boardStatuses || TASK_STATUSES).filter((s) => s.enabled)).map((s) => {
               const active = defStatuses.includes(s.id);
               return (
                 <button
@@ -1331,8 +1331,8 @@ function TaskSettings() {
           Select which status columns are visible in the Board View. Tasks can be dragged and dropped between these columns to instantly update their status.
         </p>
         <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-          {TASK_STATUSES.map((s) => {
-            const activeCols = appSettings.boardColumns || TASK_STATUSES.map((st) => st.id);
+          {((boardStatuses || TASK_STATUSES).filter((s) => s.enabled)).map((s) => {
+            const activeCols = appSettings.boardColumns || (boardStatuses || TASK_STATUSES).filter((st) => st.enabled).map((st) => st.id);
             const isChecked = activeCols.includes(s.id);
             return (
               <button
@@ -1936,11 +1936,98 @@ const SECTIONS: SectionItem[] = [
   { id: 'storage',    label: 'Storage & Cache',  icon: Database,    component: StorageSettings },
 ];
 
-export interface SettingsProps {
-  onBack?: () => void;
+export interface SettingsModalProps {
+  open: boolean;
+  onClose: () => void;
+  defaultSection?: string;
 }
 
-export default function Settings({ onBack }: SettingsProps) {
+export function SettingsModal({ open, onClose, defaultSection = 'connection' }: SettingsModalProps) {
+  const [activeSection, setActiveSection] = useState(defaultSection);
+  const ActiveComponent = SECTIONS.find((s) => s.id === activeSection)?.component || ConnectionSettings;
+
+  if (!open) return null;
+
+  return (
+    <Modal open={open} onClose={onClose} size="2xl" className="max-w-4xl w-[880px] h-[82vh] max-h-[720px] flex flex-col p-0 overflow-hidden">
+      {/* ── Modal Header ── */}
+      <div className="flex items-center justify-between px-6 py-3.5 border-b border-[var(--border)] bg-[var(--surface-2)]/40 shrink-0">
+        <div className="flex items-center gap-3">
+          <div className="h-8 w-8 rounded-xl bg-[var(--accent-muted)] border border-[var(--accent)]/30 flex items-center justify-center text-[var(--accent)] shadow-xs">
+            <Shield className="h-4 w-4" />
+          </div>
+          <div>
+            <h2 className="text-sm font-semibold text-[var(--text-1)]">Settings & Preferences</h2>
+            <p className="text-[11px] text-[var(--text-3)]">Configure GitLab connection, board statuses, projects, and appearance</p>
+          </div>
+        </div>
+        <button
+          type="button"
+          onClick={onClose}
+          className="h-8 w-8 rounded-xl flex items-center justify-center text-[var(--text-3)] hover:text-[var(--text-1)] hover:bg-[var(--surface-2)] transition-colors cursor-pointer"
+          title="Close Settings (Esc)"
+        >
+          <X className="h-4 w-4" />
+        </button>
+      </div>
+
+      {/* ── Two-Pane Layout ── */}
+      <div className="flex flex-1 min-h-0 overflow-hidden">
+        {/* Left Sidebar */}
+        <aside className="w-56 shrink-0 border-r border-[var(--border)] bg-[var(--surface-2)]/30 flex flex-col justify-between p-2">
+          <nav className="space-y-0.5 overflow-y-auto">
+            {SECTIONS.map((s) => {
+              const active = activeSection === s.id;
+              return (
+                <button
+                  key={s.id}
+                  onClick={() => setActiveSection(s.id)}
+                  className={cn(
+                    'w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs transition-all text-left cursor-pointer',
+                    active
+                      ? 'bg-[var(--accent-muted)] text-[var(--accent)] font-semibold shadow-xs border border-[var(--accent)]/30'
+                      : 'text-[var(--text-2)] hover:bg-[var(--surface-2)] hover:text-[var(--text-1)]'
+                  )}
+                >
+                  <s.icon className="h-3.5 w-3.5 shrink-0" />
+                  <span>{s.label}</span>
+                </button>
+              );
+            })}
+          </nav>
+
+          <div className="pt-2 border-t border-[var(--border)] px-2 flex items-center justify-between text-xs text-[var(--text-3)]">
+            <span>Theme</span>
+            <ThemeToggle />
+          </div>
+        </aside>
+
+        {/* Right Content */}
+        <main className="flex-1 overflow-y-auto p-6 bg-[var(--surface)]">
+          <div className="max-w-xl mx-auto">
+            <ActiveComponent />
+          </div>
+        </main>
+      </div>
+    </Modal>
+  );
+}
+
+export interface SettingsProps {
+  onBack?: () => void;
+  open?: boolean;
+  onClose?: () => void;
+  asModal?: boolean;
+}
+
+export default function Settings(props: SettingsProps) {
+  const { onBack, open, onClose, asModal } = props;
+
+  // If used as modal
+  if (open !== undefined || asModal) {
+    return <SettingsModal open={open ?? true} onClose={onClose || onBack || (() => {})} />;
+  }
+
   const [activeSection, setActiveSection] = useState('connection');
   const ActiveComponent = SECTIONS.find((s) => s.id === activeSection)?.component || ConnectionSettings;
 
