@@ -208,8 +208,12 @@ export function getDueDateBadgeClass(status?: string): string {
   }
 }
 
-export function formatDate(dateString: string | Date | null | undefined, settings: DateSettings = {}) {
-  const str = dateString instanceof Date ? dateString.toISOString() : dateString;
+export function formatDate(dateString: number | string | Date | null | undefined, settings: DateSettings = {}) {
+  const str = typeof dateString === 'number'
+    ? new Date(dateString).toISOString()
+    : dateString instanceof Date
+      ? dateString.toISOString()
+      : dateString;
   const info = getDueDateInfo(str, settings);
   if (!info) return null;
   return {
@@ -222,8 +226,8 @@ export function formatDate(dateString: string | Date | null | undefined, setting
   };
 }
 
-export function formatTime(dateInput: string | Date | null | undefined, clockFormat: string = '12h'): string {
-  if (!dateInput) return '';
+export function formatTime(dateInput: number | string | Date | null | undefined, clockFormat: string = '12h'): string {
+  if (!dateInput && dateInput !== 0) return '';
   const date = new Date(dateInput);
   if (isNaN(date.getTime())) return '';
 
@@ -234,8 +238,8 @@ export function formatTime(dateInput: string | Date | null | undefined, clockFor
   });
 }
 
-export function formatDateTime(dateInput: string | Date | null | undefined, settings: DateSettings = {}): string {
-  if (!dateInput) return '';
+export function formatDateTime(dateInput: number | string | Date | null | undefined, settings: DateSettings = {}): string {
+  if (!dateInput && dateInput !== 0) return '';
   const date = new Date(dateInput);
   if (isNaN(date.getTime())) return '';
 

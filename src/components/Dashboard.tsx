@@ -6,19 +6,27 @@ import {
   ExternalLink,
 } from 'lucide-react';
 import {
-  Button, Input, Spinner, ProgressBar, Skeleton, Card,
+  Button, Input, Spinner, ProgressBar, Skeleton,
   ThemeToggle, CacheStatus, FilterSelect,
-} from './ui/index.jsx';
-import TaskTable from './TaskTable.jsx';
-import BoardView from './BoardView.jsx';
-import TaskModal from './TaskModal.jsx';
-import useStore from '../store/useStore.js';
-import { cn } from '../lib/utils.js';
-import { TASK_STATUSES, getEffectiveStatus } from '../lib/localStore.js';
-import { useConfirm } from '../context/ConfirmContext.jsx';
+} from './ui/index';
+import TaskTable from './TaskTable';
+import BoardView from './BoardView';
+import TaskModal from './TaskModal';
+import useStore from '../store/useStore';
+import { cn } from '../lib/utils';
+import { TASK_STATUSES, getEffectiveStatus } from '../lib/localStore';
+import { useConfirm } from '../context/ConfirmContext';
+
+interface StatCardProps {
+  label: string;
+  value: number;
+  icon: any;
+  colorClass: string;
+  loading: boolean;
+}
 
 // ── Stat Card ─────────────────────────────────────────────────────────────────
-function StatCard({ label, value, icon: Icon, colorClass, loading }) {
+function StatCard({ label, value, icon: Icon, colorClass, loading }: StatCardProps) {
   return (
     <div className="flex flex-col gap-1.5 px-4 py-3 rounded-xl border border-[var(--border)] bg-[var(--surface-2)] theme-transition">
       <div className="flex items-center gap-1.5">
@@ -34,8 +42,12 @@ function StatCard({ label, value, icon: Icon, colorClass, loading }) {
   );
 }
 
+export interface DashboardProps {
+  onSettings?: () => void;
+}
+
 // ── Dashboard ─────────────────────────────────────────────────────────────────
-export default function Dashboard({ onSettings }) {
+export default function Dashboard({ onSettings }: DashboardProps) {
   const {
     projects, projectOverrides, issues, issuesLoading, issuesError, projectsLoading,
     loadingProgress, currentUser, lastFetchedAt,
@@ -47,7 +59,7 @@ export default function Dashboard({ onSettings }) {
 
   const confirm = useConfirm();
   const [modalOpen, setModalOpen] = useState(false);
-  const [editIssue, setEditIssue] = useState(null);
+  const [editIssue, setEditIssue] = useState<any>(null);
   const [initialized, setInitialized] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
 
@@ -61,25 +73,14 @@ export default function Dashboard({ onSettings }) {
     });
   }, [initialized, initializeData, checkForUpdate]);
 
-  const handleEdit = (issue) => { setEditIssue(issue); setModalOpen(true); };
+  const handleEdit = (issue: any) => { setEditIssue(issue); setModalOpen(true); };
   const handleCreate = () => { setEditIssue(null); setModalOpen(true); };
   const handleClose = () => { setModalOpen(false); setEditIssue(null); };
 
   const handleForceRefresh = async () => {
     const { result } = await confirm({
       title: 'Force Reload from GitLab?',
-      description: (
-        <div className="space-y-2 text-xs text-[var(--text-2)]">
-          <p>This will <strong>discard your cached data</strong> and re-fetch everything from GitLab API. Here's what will happen:</p>
-          <ul className="list-disc pl-4 space-y-1 text-[var(--text-3)]">
-            <li>All local task cache will be cleared</li>
-            <li>All projects and issues will be re-fetched from the API</li>
-            <li>This may take a few seconds depending on the number of projects</li>
-            <li>Your settings, labels, and pinned tasks are preserved</li>
-          </ul>
-          <p className="text-amber-500/80 font-medium">Only do this if your data seems out of date.</p>
-        </div>
-      ),
+      description: 'This will discard your cached data and re-fetch everything from GitLab API. Your settings, labels, and pinned tasks are preserved.',
       confirmButtonText: 'Yes, Reload from GitLab',
       cancelButtonText: 'Cancel',
       danger: false,
@@ -138,7 +139,7 @@ export default function Dashboard({ onSettings }) {
                 src={p.avatar_url}
                 alt=""
                 className="h-4 w-4 rounded object-cover border border-[var(--border)] mr-1"
-                onError={(e) => {
+                onError={(e: any) => {
                   e.currentTarget.style.display = 'none';
                   e.currentTarget.nextElementSibling?.classList.remove('hidden');
                 }}
@@ -176,8 +177,8 @@ export default function Dashboard({ onSettings }) {
   }, [allLabels]);
 
   const isLoading = issuesLoading || projectsLoading;
-  const hasStatusFilter = Array.isArray(filterStatus) ? filterStatus.length > 0 : (filterStatus && filterStatus !== 'all');
-  const hasFilters = (filterProjects && filterProjects.length > 0) || hasStatusFilter || (filterLabels && filterLabels.length > 0) || globalFilter || assignedToMe;
+  const hasStatusFilter = Array.isArray(filterStatus) ? filterStatus.length > 0 : Boolean(filterStatus && filterStatus !== 'all');
+  const hasFilters = (filterProjects && filterProjects.length > 0) || hasStatusFilter || (filterLabels && filterLabels.length > 0) || Boolean(globalFilter) || assignedToMe;
 
   const clearFilters = () => {
     setGlobalFilter('');
@@ -255,7 +256,7 @@ export default function Dashboard({ onSettings }) {
                 className={cn(
                   'flex items-center justify-center h-6 w-6 rounded-md transition-all cursor-pointer',
                   viewMode !== 'board'
-                    ? 'bg-[var(--accent)] text-white shadow-sm'
+                    ? 'bg-[var(--accent)] text-white shadow-xs'
                     : 'text-[var(--text-3)] hover:text-[var(--text-1)]'
                 )}
               >
@@ -267,7 +268,7 @@ export default function Dashboard({ onSettings }) {
                 className={cn(
                   'flex items-center justify-center h-6 w-6 rounded-md transition-all cursor-pointer',
                   viewMode === 'board'
-                    ? 'bg-[var(--accent)] text-white shadow-sm'
+                    ? 'bg-[var(--accent)] text-white shadow-xs'
                     : 'text-[var(--text-3)] hover:text-[var(--text-1)]'
                 )}
               >

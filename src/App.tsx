@@ -1,10 +1,10 @@
 import React, { useEffect } from 'react';
 import { GitBranch, Settings as SettingsIcon } from 'lucide-react';
-import Dashboard from './components/Dashboard.jsx';
-import Settings from './components/Settings.jsx';
-import { ToastProvider, ConfirmProvider } from './components/ui/overlay.jsx';
-import { Spinner } from './components/ui/index.jsx';
-import useStore from './store/useStore.js';
+import Dashboard from './components/Dashboard';
+import Settings from './components/Settings';
+import { ToastProvider, ConfirmProvider } from './components/ui/overlay';
+import { Spinner } from './components/ui/index';
+import useStore from './store/useStore';
 
 // ── Loading Screen ────────────────────────────────────────────────────────────
 function LoadingScreen() {
@@ -27,7 +27,7 @@ function LoadingScreen() {
 }
 
 // ── Welcome Screen ────────────────────────────────────────────────────────────
-function WelcomeScreen({ onSetup }) {
+function WelcomeScreen({ onSetup }: { onSetup: () => void }) {
   return (
     <div className="flex flex-col items-center justify-center h-full gap-6 px-8 text-center animate-fade-in bg-[var(--bg)]">
       {/* Ambient glow */}
@@ -78,13 +78,13 @@ function AppContent() {
 
   useEffect(() => {
     loadSettings().finally(() => setLoading(false));
-  }, []);
+  }, [loadSettings]);
 
   if (loading) return <LoadingScreen />;
 
   if (activeView === 'settings') {
     return (
-      <Settings onBack={isAuthenticated ? () => setActiveView('dashboard') : null} />
+      <Settings onBack={isAuthenticated ? () => setActiveView('dashboard') : undefined} />
     );
   }
 
@@ -105,4 +105,3 @@ export default function App() {
     </ToastProvider>
   );
 }
-

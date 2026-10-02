@@ -5,8 +5,9 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "vite build",
-    "build:ext": "vite build && node -e \"const fs=require('fs'); fs.copyFileSync('manifest.json','dist/manifest.json'); console.log('manifest.json copied to dist/');\"",
+    "build": "tsc -b && vite build",
+    "build:ext": "tsc -b && vite build && node -e \"const fs=require('fs'); fs.copyFileSync('manifest.json','dist/manifest.json'); console.log('manifest.json copied to dist/');\"",
+    "typecheck": "tsc --noEmit",
     "lint": "oxlint",
     "preview": "vite preview"
   },

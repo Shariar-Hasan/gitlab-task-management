@@ -4,12 +4,11 @@ import tailwindcss from '@tailwindcss/vite';
 import { resolve } from 'path';
 import { copyFileSync } from 'fs';
 
-// Plugin to copy manifest.json and icons into dist after build
+// Plugin to copy manifest.json into dist after build
 function chromeExtensionPlugin() {
   return {
     name: 'chrome-extension',
     writeBundle() {
-      // Copy manifest
       copyFileSync('manifest.json', 'dist/manifest.json');
       console.log('✓ Chrome extension files copied to dist/');
     },
@@ -25,14 +24,15 @@ export default defineConfig({
   publicDir: 'public',
   resolve: {
     alias: {
-      '@': resolve(__dirname, './src'),
+      '@': resolve(import.meta.dirname, './src'),
     },
   },
   build: {
     outDir: 'dist',
+    chunkSizeWarningLimit: 1000,
     rollupOptions: {
       input: {
-        main: resolve(__dirname, 'index.html'),
+        main: resolve(import.meta.dirname, 'index.html'),
       },
       output: {
         entryFileNames: 'assets/[name].js',
