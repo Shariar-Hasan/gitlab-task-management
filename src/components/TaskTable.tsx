@@ -973,7 +973,7 @@ export default function TaskTable({ onEdit }: TaskTableProps) {
 
       return sortDesc ? -cmp : cmp;
     });
-  }, [issues, filterProjects, filterStatus, filterLabels, globalFilter, projectMap, pinnedKeys, globalLabels, customStatuses, sorting]);
+  }, [issues, filterProjects, filterStatus, filterLabels, globalFilter, projectMap, pinnedKeys, globalLabels, customStatuses, sorting, assignedToMe, currentUser, projectOverrides]);
 
   const handleUpdate = useCallback(async (issue: any, payload: any) => {
     try { await updateTask(issue.project_id, issue.iid, payload); }

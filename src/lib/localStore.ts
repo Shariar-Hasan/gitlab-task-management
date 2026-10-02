@@ -19,25 +19,30 @@ const KEYS = {
   activeFilters:    `${PREFIX}active_filters`,      // persisted active filters
   lastUpdateCheck:  `${PREFIX}last_update_check`,   // timestamp
   latestVersion:    `${PREFIX}latest_version`,      // latest release version string
+  boardStatuses:    `${PREFIX}board_statuses`,      // board view statuses configuration
 };
 
 export const CLOSED_CUTOFF_DAYS = 30;
 
-export interface TaskStatus {
+export interface BoardStatusConfig {
   id: string;
   label: string;
   color: string;
-  dotClass: string;
+  enabled: boolean;
+  isSystem?: boolean; // true for 'open' and 'close'
+  dotClass?: string;
 }
 
-// ── Task Statuses (open & close sync with GitLab; others managed locally) ───────
-export const TASK_STATUSES: TaskStatus[] = [
-  { id: 'open',    label: 'Open',    color: '#10b981', dotClass: 'bg-emerald-500' },
-  { id: 'ongoing', label: 'Ongoing', color: '#06b6d4', dotClass: 'bg-cyan-500' },
-  { id: 'testing', label: 'Testing', color: '#ec4899', dotClass: 'bg-pink-500' },
-  { id: 'pending', label: 'Pending', color: '#f59e0b', dotClass: 'bg-amber-500' },
-  { id: 'backlog', label: 'Backlog', color: '#8b5cf6', dotClass: 'bg-purple-500' },
-  { id: 'close',   label: 'Closed',  color: '#64748b', dotClass: 'bg-slate-500' },
+export type TaskStatus = BoardStatusConfig;
+
+// ── Default Board Statuses (open & close are GitLab system statuses) ─────────
+export const DEFAULT_BOARD_STATUSES: BoardStatusConfig[] = [
+  { id: 'open',    label: 'Open',    color: '#10b981', enabled: true,  isSystem: true,  dotClass: 'bg-emerald-500' },
+  { id: 'ongoing', label: 'Ongoing', color: '#06b6d4', enabled: true,  isSystem: false, dotClass: 'bg-cyan-500' },
+  { id: 'testing', label: 'Testing', color: '#ec4899', enabled: true,  isSystem: false, dotClass: 'bg-pink-500' },
+  { id: 'pending', label: 'Pending', color: '#f59e0b', enabled: true,  isSystem: false, dotClass: 'bg-amber-500' },
+  { id: 'backlog', label: 'Backlog', color: '#8b5cf6', enabled: true,  isSystem: false, dotClass: 'bg-purple-500' },
+  { id: 'close',   label: 'Closed',  color: '#64748b', enabled: true,  isSystem: true,  dotClass: 'bg-slate-500' },
 ];
 
 export function getEffectiveStatus(issue: any, customStatusesMap: Record<string, string> = {}): string {
@@ -307,8 +312,87 @@ export const localStore = {
   getLatestVersion: (): string | null => get(KEYS.latestVersion, null),
   setLatestVersion: (v: string | null) => set(KEYS.latestVersion, v),
 
+  // ── Board View Statuses ───────────────────────────────────────────────────
+  getBoardStatuses(): BoardStatusConfig[] {
+    const saved = get<BoardStatusConfig[]>(KEYS.boardStatuses, null);
+    if (!saved || !Array.isArray(saved) || saved.length === 0) {
+      set(KEYS.boardStatuses, DEFAULT_BOARD_STATUSES);
+      return DEFAULT_BOARD_STATUSES;
+    }
+    // Guarantee 'open' and 'close' always exist and are marked isSystem
+    let list = saved.map((s) => (s.id === 'open' || s.id === 'close' ? { ...s, isSystem: true } : s));
+    if (!list.some((s) => s.id === 'open')) {
+      list = [{ id: 'open', label: 'Open', color: '#10b981', enabled: true, isSystem: true, dotClass: 'bg-emerald-500' }, ...list];
+    }
+    if (!list.some((s) => s.id === 'close')) {
+      list = [...list, { id: 'close', label: 'Closed', color: '#64748b', enabled: true, isSystem: true, dotClass: 'bg-slate-500' }];
+    }
+    return list;
+  },
+
+  setBoardStatuses(statuses: BoardStatusConfig[]): BoardStatusConfig[] {
+    let sanitized = statuses.map((s) => (s.id === 'open' || s.id === 'close' ? { ...s, isSystem: true } : s));
+    if (!sanitized.some((s) => s.id === 'open')) {
+      sanitized = [{ id: 'open', label: 'Open', color: '#10b981', enabled: true, isSystem: true, dotClass: 'bg-emerald-500' }, ...sanitized];
+    }
+    if (!sanitized.some((s) => s.id === 'close')) {
+      sanitized = [...sanitized, { id: 'close', label: 'Closed', color: '#64748b', enabled: true, isSystem: true, dotClass: 'bg-slate-500' }];
+    }
+    set(KEYS.boardStatuses, sanitized);
+    TASK_STATUSES = sanitized;
+    return sanitized;
+  },
+
+  updateBoardStatus(id: string, patch: Partial<BoardStatusConfig>): BoardStatusConfig[] {
+    const current = this.getBoardStatuses();
+    const updated = current.map((s) => {
+      if (s.id !== id) return s;
+      // 'open' and 'close' cannot change id and cannot be deleted, but can be enabled/disabled and recolored
+      const cleanPatch = s.isSystem
+        ? { enabled: patch.enabled !== undefined ? patch.enabled : s.enabled, color: patch.color || s.color }
+        : patch;
+      return { ...s, ...cleanPatch };
+    });
+    return this.setBoardStatuses(updated);
+  },
+
+  addBoardStatus(label: string, color: string): BoardStatusConfig[] {
+    const trimmed = label.trim();
+    if (!trimmed) return this.getBoardStatuses();
+    const id = trimmed.toLowerCase().replace(/[^a-z0-9_]/g, '_').slice(0, 30) || `st_${Date.now()}`;
+    if (id === 'open' || id === 'close') return this.getBoardStatuses(); // Cannot create system statuses
+    const current = this.getBoardStatuses();
+    if (current.some((s) => s.id === id)) {
+      return this.updateBoardStatus(id, { label: trimmed, color, enabled: true });
+    }
+    const newStatus: BoardStatusConfig = {
+      id,
+      label: trimmed,
+      color: color || '#8b5cf6',
+      enabled: true,
+      isSystem: false,
+    };
+    return this.setBoardStatuses([...current, newStatus]);
+  },
+
+  deleteBoardStatus(id: string): BoardStatusConfig[] {
+    if (id === 'open' || id === 'close') return this.getBoardStatuses(); // Cannot delete system statuses!
+    const current = this.getBoardStatuses();
+    const filtered = current.filter((s) => s.id !== id);
+    return this.setBoardStatuses(filtered);
+  },
+
+  resetBoardStatuses(): BoardStatusConfig[] {
+    set(KEYS.boardStatuses, DEFAULT_BOARD_STATUSES);
+    TASK_STATUSES = DEFAULT_BOARD_STATUSES;
+    return DEFAULT_BOARD_STATUSES;
+  },
+
   // Full wipe
   clear(): void {
     Object.values(KEYS).forEach((k) => localStorage.removeItem(k));
   },
 };
+
+// ── Exported TASK_STATUSES (always in sync with localStore) ────────────────────
+export let TASK_STATUSES: BoardStatusConfig[] = localStore.getBoardStatuses();

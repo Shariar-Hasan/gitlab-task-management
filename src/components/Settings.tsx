@@ -6,7 +6,7 @@ import {
   Clock, Calendar, Trash2, Edit2, RotateCcw,
   Database, Download, Plus, Check, Search, RefreshCw, X,
   Filter, FolderGit2, Moon, Sun, Laptop,
-  ToggleRight, FileText,
+  ToggleRight, FileText, Sparkles, LayoutGrid,
 } from 'lucide-react';
 import { Button, Input, Card, Badge, ThemeToggle, Switch } from './ui/index';
 import { useToast } from './ui/overlay';
@@ -1049,6 +1049,66 @@ function TaskSettings() {
           })}
         </div>
       </Card>
+
+      {/* Board View Status Columns */}
+      <Card className="p-4">
+        <div className="flex items-center justify-between mb-2">
+          <div className="flex items-center gap-2">
+            <LayoutGrid className="h-4 w-4 text-[var(--accent)]" />
+            <h4 className="text-xs font-semibold text-[var(--text-1)]">Board View Columns</h4>
+          </div>
+          <button
+            type="button"
+            onClick={() => {
+              updateAppSettings({ boardColumns: TASK_STATUSES.map((s) => s.id) });
+              toast({ type: 'info', message: 'All board columns selected' });
+            }}
+            className="text-[11px] text-[var(--accent)] hover:underline cursor-pointer"
+          >
+            Select All
+          </button>
+        </div>
+        <p className="text-xs text-[var(--text-3)] mb-3 leading-relaxed">
+          Select which status columns are visible in the Board View. Tasks can be dragged and dropped between these columns to instantly update their status.
+        </p>
+        <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+          {TASK_STATUSES.map((s) => {
+            const activeCols = appSettings.boardColumns || TASK_STATUSES.map((st) => st.id);
+            const isChecked = activeCols.includes(s.id);
+            return (
+              <button
+                key={s.id}
+                type="button"
+                onClick={() => {
+                  let next: string[];
+                  if (isChecked) {
+                    if (activeCols.length <= 1) {
+                      toast({ type: 'warning', message: 'At least one column must be enabled' });
+                      return;
+                    }
+                    next = activeCols.filter((id) => id !== s.id);
+                  } else {
+                    next = [...activeCols, s.id];
+                  }
+                  updateAppSettings({ boardColumns: next });
+                }}
+                className={cn(
+                  'flex items-center justify-between p-2.5 rounded-xl border text-xs cursor-pointer transition-all',
+                  isChecked
+                    ? 'border-[var(--accent)] bg-[var(--accent-muted)] font-medium text-[var(--text-1)] shadow-xs'
+                    : 'border-[var(--border)] bg-[var(--surface-2)] text-[var(--text-3)] hover:border-[var(--border-hover)]'
+                )}
+              >
+                <div className="flex items-center gap-2 min-w-0">
+                  <span className="h-2 w-2 rounded-full shrink-0" style={{ backgroundColor: s.color }} />
+                  <span className="truncate">{s.label}</span>
+                </div>
+                {isChecked && <Check className="h-3.5 w-3.5 text-[var(--accent)] shrink-0" />}
+              </button>
+            );
+          })}
+        </div>
+      </Card>
     </div>
   );
 }
@@ -1402,6 +1462,201 @@ function TemplatesSettings() {
   );
 }
 
+// ── Version & Updates Settings ───────────────────────────────────────────────
+function UpdatesSettings() {
+  const { appSettings, updateAppSettings, latestVersion, updateAvailable, checkForUpdate } = useStore();
+  const toast = useToast();
+  const [checking, setChecking] = useState(false);
+
+  const manifestVersion = (typeof chrome !== 'undefined' && chrome.runtime?.getManifest?.()?.version) || '1.1.0';
+  const repo = appSettings.githubRepo || 'Shariar-Hasan/gitlab-task-management';
+  const checkHours = appSettings.updateCheckHours || 4;
+  const lastCheckTs = localStore.getLastUpdateCheck();
+  const lastCheckStr = lastCheckTs ? new Date(lastCheckTs).toLocaleString() : 'Never';
+
+  const handleCheckNow = async () => {
+    setChecking(true);
+    try {
+      await checkForUpdate({ force: true });
+      const storeState = useStore.getState();
+      if (storeState.updateAvailable) {
+        toast({ type: 'warning', message: `Update available: v${storeState.latestVersion}` });
+      } else {
+        toast({ type: 'success', message: 'You are running the latest version!' });
+      }
+    } catch (e: any) {
+      toast({ type: 'error', message: `Check failed: ${e.message}` });
+    } finally {
+      setChecking(false);
+    }
+  };
+
+  const intervalOptions = [
+    { value: 1, label: 'Every 1 hour' },
+    { value: 2, label: 'Every 2 hours' },
+    { value: 4, label: 'Every 4 hours (Default)' },
+    { value: 8, label: 'Every 8 hours' },
+    { value: 12, label: 'Every 12 hours' },
+    { value: 24, label: 'Every 24 hours (Daily)' },
+  ];
+
+  const handleIntervalChange = (hours: number) => {
+    updateAppSettings({ updateCheckHours: hours });
+    if (typeof chrome !== 'undefined' && chrome?.alarms) {
+      try {
+        chrome.alarms.create('check-version-update', { periodInMinutes: hours * 60 });
+      } catch {}
+    }
+    toast({ type: 'success', message: `Update check set to every ${hours}h` });
+  };
+
+  return (
+    <div className="space-y-5">
+      <div>
+        <h3 className="text-sm font-semibold text-[var(--text-1)] mb-0.5">Version & Updates</h3>
+        <p className="text-xs text-[var(--text-3)]">
+          Manage automatic background update checks and view latest release information.
+        </p>
+      </div>
+
+      {/* Version Status Card */}
+      <Card className={cn(
+        'p-4 border transition-all',
+        updateAvailable
+          ? 'border-amber-500/30 bg-amber-500/10'
+          : 'border-emerald-500/20 bg-emerald-500/5'
+      )}>
+        <div className="flex items-start justify-between gap-3">
+          <div className="flex items-center gap-3">
+            <div className={cn(
+              'h-10 w-10 rounded-xl flex items-center justify-center shrink-0 border',
+              updateAvailable
+                ? 'border-amber-500/30 bg-amber-500/20 text-amber-500'
+                : 'border-emerald-500/30 bg-emerald-500/20 text-emerald-500'
+            )}>
+              {updateAvailable ? <Sparkles className="h-5 w-5" /> : <CheckCircle2 className="h-5 w-5" />}
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <h4 className="text-sm font-semibold text-[var(--text-1)]">
+                  {updateAvailable ? 'New Update Available!' : 'Up to Date'}
+                </h4>
+                <Badge className={updateAvailable ? 'bg-amber-500/20 text-amber-500 border-amber-500/30 text-[10px]' : 'bg-emerald-500/20 text-emerald-500 border-emerald-500/30 text-[10px]'}>
+                  v{manifestVersion}
+                </Badge>
+              </div>
+              <p className="text-xs text-[var(--text-2)] mt-0.5">
+                {updateAvailable
+                  ? `Version v${latestVersion} is available on GitHub.`
+                  : `You are on the latest version (v${manifestVersion}).`}
+              </p>
+            </div>
+          </div>
+
+          <Button
+            variant="secondary"
+            size="sm"
+            onClick={handleCheckNow}
+            disabled={checking}
+            className="shrink-0 gap-1.5"
+          >
+            {checking ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
+            {checking ? 'Checking...' : 'Check Now'}
+          </Button>
+        </div>
+
+        {updateAvailable && (
+          <div className="mt-4 pt-3 border-t border-amber-500/20 flex items-center justify-between gap-3">
+            <span className="text-xs text-amber-500 font-medium">
+              Download and unpack the latest release to update
+            </span>
+            <a
+              href={`https://github.com/${repo}/releases/latest`}
+              target="_blank"
+              rel="noreferrer"
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-amber-500 text-black text-xs font-semibold hover:bg-amber-400 transition-colors shadow-sm"
+            >
+              <Download className="h-3.5 w-3.5" />
+              Download v{latestVersion}
+            </a>
+          </div>
+        )}
+      </Card>
+
+      {/* Update Check Interval */}
+      <Card className="p-4 space-y-3">
+        <div className="flex items-center gap-2">
+          <Clock className="h-4 w-4 text-[var(--accent)]" />
+          <h4 className="text-xs font-semibold text-[var(--text-1)]">Background Check Schedule</h4>
+        </div>
+        <p className="text-xs text-[var(--text-3)] leading-relaxed">
+          The extension background service worker periodically checks GitHub releases against your current version.
+        </p>
+
+        <div className="grid grid-cols-2 gap-2">
+          {intervalOptions.map((opt) => {
+            const active = checkHours === opt.value;
+            return (
+              <label
+                key={opt.value}
+                className={cn(
+                  'flex items-center gap-2.5 p-2.5 rounded-xl border text-xs cursor-pointer transition-all',
+                  active
+                    ? 'border-[var(--accent)] bg-[var(--accent-muted)] font-medium text-[var(--accent)]'
+                    : 'border-[var(--border)] bg-[var(--surface-2)] text-[var(--text-2)] hover:border-[var(--border-hover)]'
+                )}
+              >
+                <input
+                  type="radio"
+                  name="updateCheckHours"
+                  value={opt.value}
+                  checked={active}
+                  onChange={() => handleIntervalChange(opt.value)}
+                  className="accent-[var(--accent)]"
+                />
+                {opt.label}
+              </label>
+            );
+          })}
+        </div>
+
+        <div className="flex items-center justify-between pt-2 border-t border-[var(--border)] text-xs text-[var(--text-3)]">
+          <span>Last checked: <span className="font-mono text-[var(--text-2)]">{lastCheckStr}</span></span>
+          <span className="font-mono text-[11px]">Latest remote: v{latestVersion || manifestVersion}</span>
+        </div>
+      </Card>
+
+      {/* GitHub Repository */}
+      <Card className="p-4 space-y-3">
+        <div className="flex items-center gap-2">
+          <Globe className="h-4 w-4 text-[var(--accent)]" />
+          <h4 className="text-xs font-semibold text-[var(--text-1)]">Update Source Repository</h4>
+        </div>
+        <p className="text-xs text-[var(--text-3)] leading-relaxed">
+          Releases are fetched from the official GitHub repository releases API.
+        </p>
+        <div className="flex gap-2">
+          <Input
+            value={repo}
+            onChange={(e) => updateAppSettings({ githubRepo: e.target.value })}
+            placeholder="owner/repo"
+            className="text-xs font-mono"
+          />
+          <a
+            href={`https://github.com/${repo}`}
+            target="_blank"
+            rel="noreferrer"
+            className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg border border-[var(--border)] bg-[var(--surface-2)] text-xs text-[var(--text-2)] hover:text-[var(--text-1)] transition-colors shrink-0"
+          >
+            <span>View Repo</span>
+            <ArrowRight className="h-3 w-3" />
+          </a>
+        </div>
+      </Card>
+    </div>
+  );
+}
+
 // ── Main Settings Component ────────────────────────────────────────────────────
 interface SectionItem {
   id: string;
@@ -1417,6 +1672,7 @@ const SECTIONS: SectionItem[] = [
   { id: 'labels',     label: 'Global Labels',    icon: Tag,        component: GlobalLabelsSettings },
   { id: 'templates',  label: 'Templates',        icon: FileText,   component: TemplatesSettings },
   { id: 'tasks',      label: 'Task Defaults',    icon: ListTodo,   component: TaskSettings },
+  { id: 'updates',    label: 'Version & Updates', icon: Download,   component: UpdatesSettings },
   { id: 'storage',    label: 'Storage & Cache',  icon: Database,   component: StorageSettings },
 ];
 

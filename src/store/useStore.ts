@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { storage, applyTheme, getSystemTheme, type GlobalLabel } from '../lib/utils';
-import { localStore, applyAccentColor, type AppSettings, type ProjectOverride, type TemplateItem, type GlobalLabelDef } from '../lib/localStore';
+import { localStore, applyAccentColor, type AppSettings, type ProjectOverride, type TemplateItem, type GlobalLabelDef, type BoardStatusConfig } from '../lib/localStore';
 import {
   validateConnection, fetchAllProjects, fetchAllIssues,
   fetchProjectLabels, fetchProjectMembers,
@@ -72,7 +72,7 @@ export interface StoreState {
   createTask: (projectId: string | number, payload: any) => Promise<any>;
   uploadFileToProject: (projectId: string | number, file: File) => Promise<any>;
   updateTask: (projectId: string | number, issueIid: string | number, payload: any) => Promise<any>;
-  moveTask: (oldProjectId: string | number, issueIid: string | number, newProjectId: string | number) => Promise<any>;
+  moveTask: (oldProjectId: string | number, issueIid: string | number, newProjectId: string | number, payloadOverride?: any) => Promise<any>;
   deleteTask: (projectId: string | number, issueIid: string | number) => Promise<void>;
   toggleTaskState: (projectId: string | number, issueIid: string | number, currentState: string) => Promise<void>;
   bulkCloseIssues: (items: Array<{ projectId: string | number; issueIid: string | number; state: string }>) => Promise<void>;
@@ -95,6 +95,13 @@ export interface StoreState {
   customStatuses: Record<string, string>;
   setTaskStatus: (projectId: string | number, iid: string | number, newStatus: string) => Promise<void>;
 
+  // Board Statuses (Configured columns with colors & enable/disable)
+  boardStatuses: BoardStatusConfig[];
+  updateBoardStatus: (id: string, patch: Partial<BoardStatusConfig>) => void;
+  addBoardStatus: (label: string, color: string) => void;
+  deleteBoardStatus: (id: string) => void;
+  resetBoardStatuses: () => void;
+
   // Pinned Tasks
   pinnedKeys: Set<string>;
   togglePin: (projectId: string | number, iid: string | number) => void;
@@ -103,7 +110,7 @@ export interface StoreState {
   // Version Check
   latestVersion: string | null;
   updateAvailable: boolean;
-  checkForUpdate: () => Promise<void>;
+  checkForUpdate: (options?: { force?: boolean }) => Promise<void>;
 
   // UI State
   activeView: string;
@@ -483,13 +490,13 @@ const useStore = create<StoreState>((set, get) => ({
   },
 
   // Move task to a different project (create in new, delete from old)
-  async moveTask(oldProjectId: string | number, issueIid: string | number, newProjectId: string | number): Promise<any> {
+  async moveTask(oldProjectId: string | number, issueIid: string | number, newProjectId: string | number, payloadOverride?: any): Promise<any> {
     const { issues } = get();
     const issue = issues.find((i) => i.project_id === oldProjectId && i.iid === issueIid);
-    if (!issue) throw new Error('Issue not found');
+    if (!issue && !payloadOverride) throw new Error('Issue not found');
 
-    // Create in new project
-    const payload = {
+    // Create in new project (use payloadOverride if given, e.g. updated title/description/assignees)
+    const payload = payloadOverride || {
       title: issue.title,
       description: issue.description || '',
       due_date: issue.due_date || null,
@@ -743,6 +750,29 @@ const useStore = create<StoreState>((set, get) => ({
   // ── Custom Statuses (open & close sync with GitLab; others local) ───────────
   customStatuses: localStore.getCustomStatuses(),
 
+  // ── Board Statuses (configured columns with colors & enable/disable) ───────
+  boardStatuses: localStore.getBoardStatuses(),
+
+  updateBoardStatus(id: string, patch: Partial<BoardStatusConfig>) {
+    const list = localStore.updateBoardStatus(id, patch);
+    set({ boardStatuses: [...list] });
+  },
+
+  addBoardStatus(label: string, color: string) {
+    const list = localStore.addBoardStatus(label, color);
+    set({ boardStatuses: [...list] });
+  },
+
+  deleteBoardStatus(id: string) {
+    const list = localStore.deleteBoardStatus(id);
+    set({ boardStatuses: [...list] });
+  },
+
+  resetBoardStatuses() {
+    const list = localStore.resetBoardStatuses();
+    set({ boardStatuses: [...list] });
+  },
+
   async setTaskStatus(projectId: string | number, iid: string | number, newStatus: string): Promise<void> {
     const { instanceUrl, token, issues } = get();
     const map = localStore.setCustomStatus(projectId, iid, newStatus);
@@ -766,8 +796,8 @@ const useStore = create<StoreState>((set, get) => ({
           console.error('Failed to close issue on GitLab:', e);
         }
       }
-    } else if (newStatus === 'open') {
-      if (issue.state !== 'opened') {
+    } else {
+      if (issue.state === 'closed') {
         try {
           await reopenIssue(instanceUrl, token, projectId, iid);
           const updated = issues.map((i) =>

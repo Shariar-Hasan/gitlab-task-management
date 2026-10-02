@@ -1,11 +1,12 @@
-import React, { useMemo, useState, useCallback, useRef } from 'react';
+import React, { useMemo, useState, useCallback, useRef, useEffect } from 'react';
 import {
-  GripVertical, Loader2,
+  GripVertical, Loader2, SlidersHorizontal, Check,
 } from 'lucide-react';
 import { cn } from '../lib/utils';
 import useStore from '../store/useStore';
 import { TASK_STATUSES, getEffectiveStatus, type TaskStatus } from '../lib/localStore';
-import { useToast } from './ui/overlay';
+import { Button } from './ui/index';
+import { DropdownMenu, DropdownItem, DropdownSeparator, useToast } from './ui/overlay';
 
 // Inline mini-avatar
 function MiniAvatar({ src, name, size = 20 }: { src?: string | null; name?: string | null; size?: number }) {
@@ -241,6 +242,7 @@ export default function BoardView({ onEdit }: BoardViewProps) {
     issues, customStatuses, globalLabels,
     filterProjects, filterStatus, filterLabels, assignedToMe, globalFilter,
     projectOverrides, currentUser,
+    appSettings, updateAppSettings,
     setTaskStatus,
   } = useStore();
 
@@ -249,6 +251,51 @@ export default function BoardView({ onEdit }: BoardViewProps) {
   const [dragging, setDragging] = useState<{ issue: any; fromStatus: string } | null>(null);
   const [dragTarget, setDragTarget] = useState<string | null>(null);
   const [updatingStatus, setUpdatingStatus] = useState<string | null>(null);
+  const [showColMenu, setShowColMenu] = useState(false);
+  const colMenuRef = useRef<HTMLDivElement>(null);
+
+  // Close column menu on outside click
+  useEffect(() => {
+    function handleClickOutside(e: MouseEvent) {
+      if (colMenuRef.current && !colMenuRef.current.contains(e.target as Node)) {
+        setShowColMenu(false);
+      }
+    }
+    if (showColMenu) {
+      document.addEventListener('mousedown', handleClickOutside);
+    }
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [showColMenu]);
+
+  // Board columns configured in settings
+  const activeColumnIds = useMemo(() => {
+    const cols = appSettings?.boardColumns;
+    if (Array.isArray(cols) && cols.length > 0) return cols;
+    return TASK_STATUSES.map((s) => s.id);
+  }, [appSettings?.boardColumns]);
+
+  const visibleStatuses = useMemo(() => {
+    return TASK_STATUSES.filter((s) => activeColumnIds.includes(s.id));
+  }, [activeColumnIds]);
+
+  const toggleColumn = useCallback((statusId: string) => {
+    let next: string[];
+    if (activeColumnIds.includes(statusId)) {
+      if (activeColumnIds.length <= 1) {
+        toast({ type: 'warning', message: 'At least one column must remain visible' });
+        return;
+      }
+      next = activeColumnIds.filter((id) => id !== statusId);
+    } else {
+      next = [...activeColumnIds, statusId];
+    }
+    updateAppSettings({ boardColumns: next });
+  }, [activeColumnIds, updateAppSettings, toast]);
+
+  const resetColumns = useCallback(() => {
+    updateAppSettings({ boardColumns: TASK_STATUSES.map((s) => s.id) });
+    toast({ type: 'info', message: 'All board columns restored' });
+  }, [updateAppSettings, toast]);
 
   // Apply same filters as table view
   const filteredIssues = useMemo(() => {
@@ -351,28 +398,93 @@ export default function BoardView({ onEdit }: BoardViewProps) {
   const draggingId = dragging ? `${dragging.issue.project_id}_${dragging.issue.iid}` : null;
 
   return (
-    <div
-      className="h-full overflow-x-auto overflow-y-hidden"
-      onDragEnd={() => { setDragging(null); setDragTarget(null); }}
-    >
-      <div className="flex gap-4 px-5 py-4 h-full min-w-max">
-        {TASK_STATUSES.map((status) => (
-          <BoardColumn
-            key={status.id}
-            status={status}
-            tasks={columnTasks[status.id] || []}
-            onEdit={onEdit}
-            globalLabels={globalLabels || []}
-            draggingIssueId={draggingId}
-            draggingStatus={dragging?.fromStatus}
-            onDragStart={handleDragStart}
-            onDrop={handleDrop}
-            onDragOver={handleDragOver}
-            onDragLeave={handleDragLeave}
-            isDragTarget={dragTarget === status.id && dragging?.fromStatus !== status.id}
-            isUpdating={updatingStatus === status.id}
-          />
-        ))}
+    <div className="flex flex-col h-full overflow-hidden">
+      {/* ── Sub-header: Column controls & board stats ── */}
+      <div className="flex items-center justify-between px-5 py-2 border-b border-[var(--border)] bg-[var(--surface)] shrink-0">
+        <div className="flex items-center gap-2">
+          <span className="text-xs font-semibold text-[var(--text-1)]">Board View</span>
+          <span className="text-[11px] text-[var(--text-3)] font-mono">
+            {filteredIssues.length} task{filteredIssues.length === 1 ? '' : 's'} across {visibleStatuses.length} column{visibleStatuses.length === 1 ? '' : 's'}
+          </span>
+        </div>
+
+        {/* Column selector dropdown */}
+        <div className="relative" ref={colMenuRef}>
+          <button
+            type="button"
+            onClick={() => setShowColMenu((v) => !v)}
+            className="flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium rounded-lg border border-[var(--border)] bg-[var(--surface-2)] text-[var(--text-2)] hover:border-[var(--border-hover)] hover:text-[var(--text-1)] transition-colors cursor-pointer"
+          >
+            <SlidersHorizontal className="h-3 w-3" />
+            <span>Columns ({visibleStatuses.length}/{TASK_STATUSES.length})</span>
+          </button>
+
+          {showColMenu && (
+            <div className="absolute right-0 top-full mt-1.5 w-52 p-2 rounded-xl border border-[var(--border)] bg-[var(--surface)] shadow-xl z-50 animate-scale-in">
+              <div className="flex items-center justify-between pb-1.5 mb-1.5 border-b border-[var(--border)]">
+                <span className="text-[11px] font-semibold text-[var(--text-1)]">Visible Columns</span>
+                <button
+                  type="button"
+                  onClick={resetColumns}
+                  className="text-[10px] text-[var(--accent)] hover:underline cursor-pointer"
+                >
+                  Show all
+                </button>
+              </div>
+
+              <div className="space-y-1">
+                {TASK_STATUSES.map((s) => {
+                  const isVisible = activeColumnIds.includes(s.id);
+                  return (
+                    <button
+                      key={s.id}
+                      type="button"
+                      onClick={() => toggleColumn(s.id)}
+                      className={cn(
+                        'w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-xs transition-colors cursor-pointer text-left',
+                        isVisible
+                          ? 'bg-[var(--accent-muted)]/40 text-[var(--text-1)] font-medium'
+                          : 'text-[var(--text-3)] hover:bg-[var(--surface-2)]'
+                      )}
+                    >
+                      <div className="flex items-center gap-2">
+                        <span className="h-2 w-2 rounded-full shrink-0" style={{ backgroundColor: s.color }} />
+                        <span>{s.label}</span>
+                      </div>
+                      {isVisible && <Check className="h-3.5 w-3.5 text-[var(--accent)]" />}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* ── Columns Scroll Area ── */}
+      <div
+        className="flex-1 overflow-x-auto overflow-y-hidden"
+        onDragEnd={() => { setDragging(null); setDragTarget(null); }}
+      >
+        <div className="flex gap-4 px-5 py-4 h-full min-w-max">
+          {visibleStatuses.map((status) => (
+            <BoardColumn
+              key={status.id}
+              status={status}
+              tasks={columnTasks[status.id] || []}
+              onEdit={onEdit}
+              globalLabels={globalLabels || []}
+              draggingIssueId={draggingId}
+              draggingStatus={dragging?.fromStatus}
+              onDragStart={handleDragStart}
+              onDrop={handleDrop}
+              onDragOver={handleDragOver}
+              onDragLeave={handleDragLeave}
+              isDragTarget={dragTarget === status.id && dragging?.fromStatus !== status.id}
+              isUpdating={updatingStatus === status.id}
+            />
+          ))}
+        </div>
       </div>
     </div>
   );
