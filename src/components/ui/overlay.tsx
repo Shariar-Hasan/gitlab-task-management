@@ -23,7 +23,7 @@ export const Modal = ({ open, onClose, children, className, size = 'md' }: Modal
   const sizes: Record<string, string> = { sm: 'max-w-md', md: 'max-w-lg', lg: 'max-w-2xl', xl: 'max-w-3xl', '2xl': 'max-w-4xl' };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 overflow-hidden">
       <div
         className="absolute inset-0 bg-black/50 backdrop-blur-sm animate-fade-in"
         onClick={onClose}
@@ -230,69 +230,96 @@ export const ConfirmPopover = ({
   );
 };
 
-// ── Toast ─────────────────────────────────────────────────────────────────────
+import { toast as sonnerToast, Toaster } from 'sonner';
+import 'sonner/dist/styles.css';
+import useStore from '../../store/useStore';
+
+// ── Toast (powered by Sonner) ─────────────────────────────────────────────────
 export type ToastType = 'success' | 'error' | 'info' | 'warning';
+
+export interface ToastAction {
+  label: string;
+  onClick: (event: React.MouseEvent<HTMLButtonElement, MouseEvent>) => void;
+}
 
 export interface ToastOptions {
   type?: ToastType;
-  message: string;
+  message?: string;
+  title?: string;
   duration?: number;
+  action?: ToastAction;
+  cancel?: ToastAction;
+  description?: React.ReactNode;
+  id?: string | number;
+  onDismiss?: (toast: any) => void;
+  onAutoClose?: (toast: any) => void;
+  [key: string]: any;
 }
 
-export type ToastFn = (options: ToastOptions) => void;
-
-const ToastContext = React.createContext<ToastFn | null>(null);
-
-interface ToastItem {
-  id: number;
-  type: ToastType;
-  message: string;
+export interface ToastFn {
+  (optionsOrMessage: ToastOptions | string, legacyOptions?: any): string | number;
+  success: (message: string, options?: any) => string | number;
+  error: (message: string, options?: any) => string | number;
+  warning: (message: string, options?: any) => string | number;
+  info: (message: string, options?: any) => string | number;
+  loading: (message: string, options?: any) => string | number;
+  dismiss: (id?: string | number) => void;
+  promise: typeof sonnerToast.promise;
+  custom: typeof sonnerToast.custom;
 }
+
+const customToast = ((optionsOrMessage: ToastOptions | string, legacyOptions?: any) => {
+  if (typeof optionsOrMessage === 'string') {
+    return sonnerToast(optionsOrMessage, legacyOptions);
+  }
+  const { type = 'info', message, title, duration, action, cancel, description, ...rest } = optionsOrMessage;
+  const content = message || title || '';
+  const opts = { duration, action, cancel, description, ...rest };
+  switch (type) {
+    case 'success':
+      return sonnerToast.success(content, opts);
+    case 'error':
+      return sonnerToast.error(content, opts);
+    case 'warning':
+      return sonnerToast.warning(content, opts);
+    case 'info':
+    default:
+      return sonnerToast.info(content, opts);
+  }
+}) as ToastFn;
+
+customToast.success = (msg, opts) => sonnerToast.success(msg, opts);
+customToast.error = (msg, opts) => sonnerToast.error(msg, opts);
+customToast.warning = (msg, opts) => sonnerToast.warning(msg, opts);
+customToast.info = (msg, opts) => sonnerToast.info(msg, opts);
+customToast.loading = (msg, opts) => sonnerToast.loading(msg, opts);
+customToast.dismiss = (id) => sonnerToast.dismiss(id);
+customToast.promise = sonnerToast.promise;
+customToast.custom = sonnerToast.custom;
+
+export const toast = customToast;
+export const useToast = (): ToastFn => customToast;
 
 export const ToastProvider = ({ children }: { children: React.ReactNode }) => {
-  const [toasts, setToasts] = React.useState<ToastItem[]>([]);
-
-  const addToast: ToastFn = React.useCallback(({ type = 'info', message, duration = 3500 }) => {
-    const id = Date.now();
-    setToasts((prev) => [...prev, { id, type, message }]);
-    setTimeout(() => setToasts((prev) => prev.filter((t) => t.id !== id)), duration);
-  }, []);
-
-  const remove = (id: number) => setToasts((p) => p.filter((t) => t.id !== id));
-
-  const colors: Record<ToastType, string> = {
-    success: 'border-emerald-500/30 text-emerald-500',
-    error:   'border-red-500/30 text-red-500',
-    info:    'border-[var(--accent)]/30 text-[var(--accent)]',
-    warning: 'border-amber-500/30 text-amber-500',
-  };
-
+  const theme = useStore((s) => s.theme) || 'dark';
+  const resolvedTheme = theme === 'light' ? 'light' : theme === 'dark' ? 'dark' : 'system';
   return (
-    <ToastContext.Provider value={addToast}>
+    <>
       {children}
-      <div className="fixed bottom-5 right-5 z-[100] flex flex-col gap-2 pointer-events-none">
-        {toasts.map((t) => (
-          <div
-            key={t.id}
-            className={cn(
-              'flex items-center gap-2.5 px-4 py-3 rounded-xl bg-[var(--surface)] border shadow-[var(--shadow-modal)]',
-              'text-sm font-medium pointer-events-auto animate-slide-up cursor-pointer',
-              colors[t.type]
-            )}
-            onClick={() => remove(t.id)}
-          >
-            {t.message}
-          </div>
-        ))}
-      </div>
-    </ToastContext.Provider>
+      <Toaster
+        position="bottom-right"
+        richColors
+        closeButton
+        duration={3500}
+        theme={resolvedTheme}
+        toastOptions={{
+          style: {
+            fontFamily: 'inherit',
+          },
+        }}
+      />
+    </>
   );
-};
-
-export const useToast = (): ToastFn => {
-  const ctx = React.useContext(ToastContext);
-  if (!ctx) throw new Error('useToast must be used inside ToastProvider');
-  return ctx;
 };
 
 export { ConfirmProvider, useConfirm } from '../../context/ConfirmContext';

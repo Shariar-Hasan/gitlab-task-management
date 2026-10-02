@@ -162,6 +162,10 @@ export interface AppSettings {
   githubRepo: string;
   viewMode: 'table' | 'board' | string;
   boardColumns: string[];
+  undoPeriod: number; // grace period in seconds for major changes (default 5, 0 to disable)
+  cloudSyncEnabled: boolean;
+  cloudSyncFrequency: 'on_change' | '1h' | '1d';
+  cloudSyncLastSynced: string | null;
   [key: string]: any;
 }
 
@@ -182,6 +186,10 @@ export const DEFAULT_SETTINGS: AppSettings = {
   githubRepo: 'Shariar-Hasan/gitlab-task-management', // github repo for version check
   viewMode: 'table',          // 'table' | 'board'
   boardColumns: ['open', 'ongoing', 'testing', 'pending', 'backlog', 'close'],
+  undoPeriod: 5,              // default 5s undo period on major changes
+  cloudSyncEnabled: true,     // default enabled for automatic backup
+  cloudSyncFrequency: 'on_change', // 'on_change' | '1h' | '1d'
+  cloudSyncLastSynced: null,
 };
 
 // ── Accent Color Applicator ───────────────────────────────────────────────────
@@ -439,12 +447,15 @@ export const localStore = {
 
   reorderTask(
     draggedKey: string,
-    targetKey: string,
+    targetKey: string | null,
     position: 'before' | 'after' = 'before',
     allKeys?: string[],
     forceSeed = false
   ): string[] {
-    if (!draggedKey || !targetKey || draggedKey === targetKey) {
+    if (!draggedKey) {
+      return this.getTaskSequence();
+    }
+    if (targetKey && draggedKey === targetKey) {
       return this.getTaskSequence();
     }
 
@@ -468,22 +479,22 @@ export const localStore = {
       }
     }
 
-    // Ensure targetKey is in current if somehow missing
-    if (!current.includes(targetKey)) {
-      current.push(targetKey);
-    }
-
-    // Remove draggedKey
+    // Remove draggedKey from wherever it currently is
     const filtered = current.filter((k) => k !== draggedKey);
-    const targetIdx = filtered.indexOf(targetKey);
 
-    if (targetIdx === -1) {
+    if (!targetKey) {
+      // Empty column or no specific target
       if (position === 'before') {
         filtered.unshift(draggedKey);
       } else {
         filtered.push(draggedKey);
       }
     } else {
+      // Ensure targetKey is in filtered if somehow missing
+      if (!filtered.includes(targetKey)) {
+        filtered.push(targetKey);
+      }
+      const targetIdx = filtered.indexOf(targetKey);
       const insertAt = position === 'before' ? targetIdx : targetIdx + 1;
       filtered.splice(insertAt, 0, draggedKey);
     }
@@ -512,6 +523,38 @@ export const localStore = {
     const updated = { ...current, ...cols };
     set(KEYS.boardVisibleColumns, updated);
     return updated;
+  },
+
+  // ── Cloud Backup Export & Import ─────────────────────────────────────────────
+  exportDataForBackup(): Record<string, any> {
+    return {
+      version: '1.0',
+      exportedAt: new Date().toISOString(),
+      settings: this.getSettings(),
+      boardStatuses: this.getBoardStatuses(),
+      customStatuses: this.getCustomStatuses(),
+      globalLabels: this.getGlobalLabels(),
+      templates: this.getTemplates(),
+      taskSequence: this.getTaskSequence(),
+      pinned: Array.from(this.getPinned()),
+      projectOverrides: this.getProjectOverrides(),
+      tableVisibleColumns: this.getTableVisibleColumns(),
+      boardVisibleColumns: this.getBoardVisibleColumns(),
+    };
+  },
+
+  importDataFromBackup(data: Record<string, any>): void {
+    if (!data || typeof data !== 'object') return;
+    if (data.settings) this.setSettings({ ...DEFAULT_SETTINGS, ...data.settings });
+    if (Array.isArray(data.boardStatuses)) this.setBoardStatuses(data.boardStatuses);
+    if (data.customStatuses && typeof data.customStatuses === 'object') this.setCustomStatuses(data.customStatuses);
+    if (Array.isArray(data.globalLabels)) this.setGlobalLabels(data.globalLabels);
+    if (Array.isArray(data.templates)) this.setTemplates(data.templates);
+    if (Array.isArray(data.taskSequence)) this.setTaskSequence(data.taskSequence);
+    if (Array.isArray(data.pinned)) this.setPinned(data.pinned);
+    if (data.projectOverrides && typeof data.projectOverrides === 'object') this.setProjectOverrides(data.projectOverrides);
+    if (data.tableVisibleColumns && typeof data.tableVisibleColumns === 'object') this.setTableVisibleColumns(data.tableVisibleColumns);
+    if (data.boardVisibleColumns && typeof data.boardVisibleColumns === 'object') this.setBoardVisibleColumns(data.boardVisibleColumns);
   },
 
   // Full wipe

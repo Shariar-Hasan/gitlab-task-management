@@ -26,12 +26,13 @@ function MiniAvatar({ src, name, size = 20 }: { src?: string | null; name?: stri
   const hue = ((name || '').charCodeAt(0) * 7) % 360;
   return src && !errored ? (
     <img src={src} alt={name || 'Avatar'} onError={() => setErrored(true)}
+      draggable={false}
       style={{ width: size, height: size }}
-      className="rounded-full object-cover border-2 border-[var(--surface)]"
+      className="rounded-full object-cover border-2 border-[var(--surface)] select-none pointer-events-none"
     />
   ) : (
     <div style={{ width: size, height: size, background: `hsl(${hue}, 50%, 40%)` }}
-      className="rounded-full border-2 border-[var(--surface)] flex items-center justify-center text-white font-bold text-[9px]"
+      className="rounded-full border-2 border-[var(--surface)] flex items-center justify-center text-white font-bold text-[9px] select-none pointer-events-none"
     >{initials}</div>
   );
 }
@@ -43,7 +44,6 @@ function getDueInfo(dueDate?: string | null) {
   const due = new Date(dueDate);
   const diffDays = Math.ceil((due.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
   if (diffDays < 0) return { text: `${Math.abs(diffDays)}d overdue`, cls: 'bg-red-500/15 text-red-500 border-red-500/20' };
-  if (diffDays === 0) return { text: 'Due today', cls: 'bg-amber-500/15 text-amber-500 border-amber-500/20' };
   if (diffDays <= 3) return { text: `Due in ${diffDays}d`, cls: 'bg-amber-500/15 text-amber-500 border-amber-500/20' };
   return { text: `Due ${diffDays}d`, cls: 'bg-[var(--surface-3)] text-[var(--text-3)] border-[var(--border)]' };
 }
@@ -55,9 +55,6 @@ interface TaskCardProps {
   dragOverPos?: 'before' | 'after' | null;
   onDragStart: (e: React.DragEvent, issue: any, status: string) => void;
   onDragEnd: (e: React.DragEvent) => void;
-  onDragOver?: (e: React.DragEvent, issue: any) => void;
-  onDragLeave?: (e: React.DragEvent, issue: any) => void;
-  onDrop?: (e: React.DragEvent, issue: any, statusId: string) => void;
   onEdit: (issue: any) => void;
   globalLabels: any[];
   visibleColumns: BoardVisibleColumns;
@@ -68,7 +65,7 @@ interface TaskCardProps {
 const TaskCard = React.memo(
   function TaskCard({
     issue, status, isDragging, dragOverPos,
-    onDragStart, onDragEnd, onDragOver, onDragLeave, onDrop,
+    onDragStart, onDragEnd,
     onEdit, globalLabels, visibleColumns, projectName
   }: TaskCardProps) {
     const cardRef = useRef<HTMLDivElement>(null);
@@ -81,30 +78,37 @@ const TaskCard = React.memo(
       .slice(0, 3);
 
     const statusInfo = TASK_STATUSES.find((s) => s.id === status);
+    const cardKey = `${issue.project_id}_${issue.iid}`;
 
     return (
       <div
         ref={cardRef}
+        data-task-card-key={cardKey}
         draggable
         onDragStart={(e) => onDragStart(e, issue, status)}
         onDragEnd={onDragEnd}
-        onDragOver={(e) => onDragOver?.(e, issue)}
-        onDragLeave={(e) => onDragLeave?.(e, issue)}
-        onDrop={(e) => onDrop?.(e, issue, status)}
         className={cn(
           'group relative p-3 rounded-xl border bg-[var(--surface)] shadow-xs select-none',
           'cursor-grab active:cursor-grabbing transition-all duration-150',
           'hover:border-[var(--accent)]/40 hover:shadow-md',
           isDragging
-            ? 'opacity-30 scale-95 border-[var(--accent)]'
+            ? 'opacity-30 scale-95 border-[var(--accent)] pointer-events-none'
             : 'border-[var(--border)] hover:translate-y-[-1px]',
-          dragOverPos === 'before' && 'border-t-2 !border-t-[var(--accent)] shadow-md',
-          dragOverPos === 'after' && 'border-b-2 !border-b-[var(--accent)] shadow-md'
+          dragOverPos === 'before' && '!border-t-[var(--accent)] shadow-md',
+          dragOverPos === 'after' && '!border-b-[var(--accent)] shadow-md'
         )}
         onClick={() => onEdit(issue)}
       >
+        {/* Crisp illuminated drop indicator line */}
+        {dragOverPos === 'before' && (
+          <div className="absolute -top-[5px] left-1 right-1 h-[3px] bg-[var(--accent)] rounded-full shadow-[0_0_8px_var(--accent)] z-30 pointer-events-none" />
+        )}
+        {dragOverPos === 'after' && (
+          <div className="absolute -bottom-[5px] left-1 right-1 h-[3px] bg-[var(--accent)] rounded-full shadow-[0_0_8px_var(--accent)] z-30 pointer-events-none" />
+        )}
+
         {/* Status dot & Project */}
-        <div className="flex items-start justify-between gap-2 mb-2">
+        <div className="flex items-start justify-between gap-2 mb-2 pointer-events-none">
           <div className="flex items-center gap-1.5 min-w-0 flex-wrap">
             {visibleColumns.status && (
               <span
@@ -124,12 +128,12 @@ const TaskCard = React.memo(
               </span>
             )}
           </div>
-          <GripVertical className="h-3.5 w-3.5 text-[var(--text-3)] opacity-0 group-hover:opacity-100 transition-opacity shrink-0 mt-0.5 pointer-events-none" />
+          <GripVertical className="h-3.5 w-3.5 text-[var(--text-3)] opacity-0 group-hover:opacity-100 transition-opacity shrink-0 mt-0.5" />
         </div>
 
         {/* Title */}
         <p
-          className="text-xs font-medium text-[var(--text-1)] leading-relaxed line-clamp-2 mb-2.5"
+          className="text-xs font-medium text-[var(--text-1)] leading-relaxed line-clamp-2 mb-2.5 pointer-events-none"
           title={issue.title}
         >
           {issue.title}
@@ -137,7 +141,7 @@ const TaskCard = React.memo(
 
         {/* Labels */}
         {visibleColumns.labels && visibleLabels.length > 0 && (
-          <div className="flex flex-wrap gap-1 mb-2.5">
+          <div className="flex flex-wrap gap-1 mb-2.5 pointer-events-none">
             {visibleLabels.map((l: any) => (
               <span
                 key={l.name}
@@ -160,7 +164,7 @@ const TaskCard = React.memo(
 
         {/* Footer: due date + assignees */}
         {((visibleColumns.dueDate && dueInfo) || (visibleColumns.assignees && assignees.length > 0)) && (
-          <div className="flex items-center justify-between gap-2 mt-auto">
+          <div className="flex items-center justify-between gap-2 mt-auto pointer-events-none">
             <div className="flex items-center gap-1.5">
               {visibleColumns.dueDate && dueInfo && (
                 <span className={cn('text-[9px] px-1.5 py-0.5 rounded border font-medium', dueInfo.cls)}>
@@ -198,6 +202,52 @@ const TaskCard = React.memo(
   }
 );
 
+// ── Drop placement calculation helper ──────────────────────────────────────────
+function getColumnDropPlacement(
+  containerEl: HTMLElement | null,
+  clientY: number,
+  columnTasks: any[],
+  draggedKey: string
+): { targetKey: string | null; pos: 'before' | 'after' } {
+  const otherTasks = columnTasks.filter(
+    (t) => `${t.project_id}_${t.iid}` !== draggedKey
+  );
+
+  if (otherTasks.length === 0) {
+    return { targetKey: null, pos: 'after' };
+  }
+
+  if (!containerEl) {
+    const last = otherTasks[otherTasks.length - 1];
+    return { targetKey: `${last.project_id}_${last.iid}`, pos: 'after' };
+  }
+
+  const cardEls = Array.from(
+    containerEl.querySelectorAll<HTMLElement>('[data-task-card-key]')
+  ).filter((el) => el.getAttribute('data-task-card-key') !== draggedKey);
+
+  if (cardEls.length === 0) {
+    const last = otherTasks[otherTasks.length - 1];
+    return { targetKey: `${last.project_id}_${last.iid}`, pos: 'after' };
+  }
+
+  for (let i = 0; i < cardEls.length; i++) {
+    const el = cardEls[i];
+    const key = el.getAttribute('data-task-card-key');
+    if (!key) continue;
+    const rect = el.getBoundingClientRect();
+    const midY = rect.top + rect.height / 2;
+
+    if (clientY < midY) {
+      return { targetKey: key, pos: 'before' };
+    }
+  }
+
+  const lastEl = cardEls[cardEls.length - 1];
+  const lastKey = lastEl.getAttribute('data-task-card-key')!;
+  return { targetKey: lastKey, pos: 'after' };
+}
+
 interface BoardColumnProps {
   status: TaskStatus;
   tasks: any[];
@@ -208,12 +258,9 @@ interface BoardColumnProps {
   dragOverTarget?: { key: string; pos: 'before' | 'after' } | null;
   onDragStart: (e: React.DragEvent, issue: any, statusId: string) => void;
   onDragEnd: (e: React.DragEvent) => void;
-  onCardDragOver: (e: React.DragEvent, issue: any) => void;
-  onCardDragLeave: (e: React.DragEvent, issue: any) => void;
-  onCardDrop: (e: React.DragEvent, targetIssue: any, statusId: string) => void;
-  onColumnDrop: (statusId: string) => void;
-  onColumnDragOver: (statusId: string) => void;
-  onColumnDragLeave: () => void;
+  onColumnDragOver: (e: React.DragEvent, statusId: string, containerEl: HTMLElement | null) => void;
+  onColumnDragLeave: (e: React.DragEvent, statusId: string) => void;
+  onColumnDrop: (e: React.DragEvent, statusId: string, containerEl: HTMLElement | null) => void;
   isDragTarget: boolean;
   isUpdating: boolean;
   visibleColumns: BoardVisibleColumns;
@@ -224,29 +271,40 @@ interface BoardColumnProps {
 const BoardColumn = React.memo(function BoardColumn({
   status, tasks, onEdit, globalLabels,
   draggingIssueId, draggingStatus, dragOverTarget,
-  onDragStart, onDragEnd, onCardDragOver, onCardDragLeave, onCardDrop,
-  onColumnDrop, onColumnDragOver, onColumnDragLeave,
+  onDragStart, onDragEnd,
+  onColumnDragOver, onColumnDragLeave, onColumnDrop,
   isDragTarget,
   isUpdating,
   visibleColumns,
   projectMap,
 }: BoardColumnProps) {
+  const cardsContainerRef = useRef<HTMLDivElement>(null);
   const taskCount = tasks.length;
 
   return (
     <div
       className={cn(
-        'flex flex-col w-[280px] shrink-0 rounded-2xl border transition-all duration-150',
+        'flex flex-col w-[280px] shrink-0 rounded-2xl border transition-all duration-150 h-full max-h-full select-none',
         isDragTarget
-          ? 'border-[var(--accent)]/50 bg-[var(--accent-muted)]/30 shadow-lg shadow-[var(--accent)]/10'
+          ? 'border-[var(--accent)] bg-[var(--accent-muted)]/20 shadow-lg shadow-[var(--accent)]/10 ring-2 ring-[var(--accent)]/30'
           : 'border-[var(--border)] bg-[var(--surface-2)]/60'
       )}
-      onDragOver={(e) => { e.preventDefault(); onColumnDragOver(status.id); }}
-      onDragLeave={onColumnDragLeave}
-      onDrop={(e) => { e.preventDefault(); onColumnDrop(status.id); }}
+      onDragOver={(e) => {
+        e.preventDefault();
+        e.dataTransfer.dropEffect = 'move';
+        onColumnDragOver(e, status.id, cardsContainerRef.current);
+      }}
+      onDragLeave={(e) => {
+        onColumnDragLeave(e, status.id);
+      }}
+      onDrop={(e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        onColumnDrop(e, status.id, cardsContainerRef.current);
+      }}
     >
       {/* Column Header */}
-      <div className="flex items-center justify-between px-4 py-3 border-b border-[var(--border)]">
+      <div className="flex items-center justify-between px-4 py-3 border-b border-[var(--border)] shrink-0 pointer-events-none">
         <div className="flex items-center gap-2">
           <span
             className="h-2.5 w-2.5 rounded-full"
@@ -260,48 +318,65 @@ const BoardColumn = React.memo(function BoardColumn({
         {isUpdating && <Loader2 className="h-3.5 w-3.5 text-[var(--accent)] animate-spin" />}
       </div>
 
-      {/* Cards */}
-      <div className="flex-1 overflow-y-auto p-3 space-y-2.5 min-h-[120px] max-h-[calc(100vh-280px)]">
-        {tasks.length === 0 && (
-          <div className={cn(
-            'flex items-center justify-center h-20 rounded-xl border-2 border-dashed transition-colors',
-            isDragTarget
-              ? 'border-[var(--accent)]/50 bg-[var(--accent-muted)]/20 text-[var(--accent)]'
-              : 'border-[var(--border)] text-[var(--text-3)]'
-          )}>
-            <span className="text-[11px]">
-              {isDragTarget ? 'Drop here' : 'No tasks'}
+      {/* Cards - The entire status list is the drop zone */}
+      <div
+        ref={cardsContainerRef}
+        className="flex-1 min-h-0 overflow-y-auto p-3 space-y-2.5 flex flex-col"
+        onDragOver={(e) => {
+          e.preventDefault();
+          e.dataTransfer.dropEffect = 'move';
+          onColumnDragOver(e, status.id, cardsContainerRef.current);
+        }}
+        onDrop={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          onColumnDrop(e, status.id, cardsContainerRef.current);
+        }}
+      >
+        {tasks.length === 0 ? (
+          <div
+            className={cn(
+              'flex-1 min-h-[160px] rounded-xl border-2 border-dashed flex flex-col items-center justify-center p-4 transition-colors pointer-events-none',
+              isDragTarget
+                ? 'border-[var(--accent)] bg-[var(--accent-muted)]/30 text-[var(--accent)]'
+                : 'border-[var(--border)] text-[var(--text-3)]'
+            )}
+          >
+            <span className="text-xs font-medium">
+              {isDragTarget ? 'Drop task in this status' : 'No tasks'}
             </span>
           </div>
-        )}
+        ) : (
+          <>
+            {tasks.map((issue) => {
+              const key = `${issue.project_id}_${issue.iid}`;
+              return (
+                <TaskCard
+                  key={key}
+                  issue={issue}
+                  status={status.id}
+                  isDragging={draggingIssueId === key}
+                  dragOverPos={dragOverTarget?.key === key ? dragOverTarget.pos : null}
+                  onDragStart={onDragStart}
+                  onDragEnd={onDragEnd}
+                  onEdit={onEdit}
+                  globalLabels={globalLabels}
+                  visibleColumns={visibleColumns}
+                  projectName={projectMap[issue.project_id]?.name}
+                />
+              );
+            })}
 
-        {tasks.map((issue) => {
-          const key = `${issue.project_id}_${issue.iid}`;
-          return (
-            <TaskCard
-              key={key}
-              issue={issue}
-              status={status.id}
-              isDragging={draggingIssueId === key}
-              dragOverPos={dragOverTarget?.key === key ? dragOverTarget.pos : null}
-              onDragStart={onDragStart}
-              onDragEnd={onDragEnd}
-              onDragOver={onCardDragOver}
-              onDragLeave={onCardDragLeave}
-              onDrop={onCardDrop}
-              onEdit={onEdit}
-              globalLabels={globalLabels}
-              visibleColumns={visibleColumns}
-              projectName={projectMap[issue.project_id]?.name}
+            {/* Flexible drop zone spacer spanning the rest of the column list */}
+            <div
+              className={cn(
+                'flex-1 min-h-[60px] rounded-xl transition-all duration-150 pointer-events-none',
+                isDragTarget && draggingStatus !== status.id
+                  ? 'border-2 border-dashed border-[var(--accent)]/40 bg-[var(--accent-muted)]/15'
+                  : 'border border-transparent'
+              )}
             />
-          );
-        })}
-
-        {/* Drop Zone at bottom when dragging from another column */}
-        {isDragTarget && tasks.length > 0 && draggingStatus !== status.id && (
-          <div className="h-16 rounded-xl border-2 border-dashed border-[var(--accent)]/40 bg-[var(--accent-muted)]/10 flex items-center justify-center">
-            <span className="text-[11px] text-[var(--accent)]">Drop here</span>
-          </div>
+          </>
         )}
       </div>
     </div>
@@ -320,12 +395,14 @@ export default function BoardView({ onEdit }: BoardViewProps) {
     projectOverrides, currentUser,
     boardStatuses,
     setTaskStatus,
-    taskSequence, reorderTaskSequence,
+    taskSequence, reorderTaskSequence, setTaskSequence,
     boardVisibleColumns, toggleBoardColumn, resetBoardVisibleColumns,
+    appSettings,
   } = useStore();
 
   const toast = useToast();
 
+  const draggingRef = useRef<{ issue: any; fromStatus: string } | null>(null);
   const [dragging, setDragging] = useState<{ issue: any; fromStatus: string } | null>(null);
   const [dragTarget, setDragTarget] = useState<string | null>(null);
   const [dragOverTarget, setDragOverTarget] = useState<{ key: string; pos: 'before' | 'after' } | null>(null);
@@ -333,7 +410,7 @@ export default function BoardView({ onEdit }: BoardViewProps) {
   const [showColMenu, setShowColMenu] = useState(false);
   const colMenuRef = useRef<HTMLDivElement>(null);
 
-  // Close column menu on outside click
+  // Close columns dropdown on click outside
   useEffect(() => {
     function handleClickOutside(e: MouseEvent | TouchEvent) {
       if (colMenuRef.current && !colMenuRef.current.contains(e.target as Node)) {
@@ -445,52 +522,6 @@ export default function BoardView({ onEdit }: BoardViewProps) {
     return map;
   }, [filteredIssues, customStatuses, boardStatuses, sequenceMap]);
 
-  const handleDragStart = useCallback((e: React.DragEvent, issue: any, fromStatus: string) => {
-    const key = `${issue.project_id}_${issue.iid}`;
-    setDragging({ issue, fromStatus });
-    e.dataTransfer.effectAllowed = 'move';
-    e.dataTransfer.setData('text/plain', key);
-  }, []);
-
-  const handleDragEnd = useCallback(() => {
-    setDragging(null);
-    setDragTarget(null);
-    setDragOverTarget(null);
-  }, []);
-
-  const handleColumnDragOver = useCallback((statusId: string) => {
-    setDragTarget(statusId);
-  }, []);
-
-  const handleColumnDragLeave = useCallback(() => {
-    // Keep target until drop or another dragover
-  }, []);
-
-  const handleCardDragOver = useCallback((e: React.DragEvent, issue: any) => {
-    e.preventDefault();
-    e.stopPropagation();
-    e.dataTransfer.dropEffect = 'move';
-    const key = `${issue.project_id}_${issue.iid}`;
-    if (!dragging || key === `${dragging.issue.project_id}_${dragging.issue.iid}`) return;
-
-    const rect = e.currentTarget.getBoundingClientRect();
-    const midY = rect.top + rect.height / 2;
-    const pos = e.clientY < midY ? 'before' : 'after';
-
-    setDragOverTarget((prev) => {
-      if (prev?.key === key && prev?.pos === pos) return prev;
-      return { key, pos };
-    });
-  }, [dragging]);
-
-  const handleCardDragLeave = useCallback((e: React.DragEvent, issue: any) => {
-    const target = e.currentTarget as HTMLElement;
-    if (!target.contains(e.relatedTarget as Node)) {
-      const key = `${issue.project_id}_${issue.iid}`;
-      setDragOverTarget((prev) => (prev?.key === key ? null : prev));
-    }
-  }, []);
-
   // Compute all visible tasks in current board visual sequence order
   const allVisibleKeys = useMemo(() => {
     const keys: string[] = [];
@@ -507,77 +538,124 @@ export default function BoardView({ onEdit }: BoardViewProps) {
     return keys;
   }, [visibleStatuses, columnTasks, filteredIssues]);
 
-  const handleCardDrop = useCallback(async (e: React.DragEvent, targetIssue: any, toStatus: string) => {
+  const handleDragStart = useCallback((e: React.DragEvent, issue: any, fromStatus: string) => {
+    const key = `${issue.project_id}_${issue.iid}`;
+    const dragData = { issue, fromStatus };
+    setDragging(dragData);
+    draggingRef.current = dragData;
+    e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.setData('text/plain', key);
+  }, []);
+
+  const handleDragEnd = useCallback(() => {
+    setDragging(null);
+    draggingRef.current = null;
+    setDragTarget(null);
+    setDragOverTarget(null);
+  }, []);
+
+  const handleColumnDragOver = useCallback((e: React.DragEvent, toStatus: string, containerEl: HTMLElement | null) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+
+    const currentDragging = draggingRef.current || dragging;
+    if (!currentDragging) return;
+
+    const draggedKey = `${currentDragging.issue.project_id}_${currentDragging.issue.iid}`;
+    const tasks = columnTasks[toStatus] || [];
+    const placement = getColumnDropPlacement(containerEl, e.clientY, tasks, draggedKey);
+
+    setDragTarget(toStatus);
+    setDragOverTarget((prev) => {
+      if (prev?.key === placement.targetKey && prev?.pos === placement.pos) {
+        return prev;
+      }
+      return placement.targetKey ? { key: placement.targetKey, pos: placement.pos } : null;
+    });
+  }, [dragging, columnTasks]);
+
+  const handleColumnDragLeave = useCallback((e: React.DragEvent, statusId: string) => {
+    const related = e.relatedTarget as Node | null;
+    if (!e.currentTarget.contains(related)) {
+      setDragTarget((prev) => (prev === statusId ? null : prev));
+      setDragOverTarget(null);
+    }
+  }, []);
+
+  const handleColumnDrop = useCallback(async (e: React.DragEvent, toStatus: string, containerEl: HTMLElement | null) => {
     e.preventDefault();
     e.stopPropagation();
-    if (!dragging) return;
-    const { issue, fromStatus } = dragging;
+
+    const currentDragging = draggingRef.current || dragging;
+    if (!currentDragging) return;
+
+    const { issue, fromStatus } = currentDragging;
     const draggedKey = `${issue.project_id}_${issue.iid}`;
-    const targetKey = `${targetIssue.project_id}_${targetIssue.iid}`;
 
-    if (draggedKey === targetKey) {
-      setDragging(null);
-      setDragTarget(null);
-      setDragOverTarget(null);
-      return;
-    }
+    const tasks = columnTasks[toStatus] || [];
+    const placement = getColumnDropPlacement(containerEl, e.clientY, tasks, draggedKey);
 
-    const rect = e.currentTarget.getBoundingClientRect();
-    const midY = rect.top + rect.height / 2;
-    const pos = e.clientY < midY ? 'before' : 'after';
-
+    // Reset dragging UI indicators immediately
     setDragging(null);
+    draggingRef.current = null;
     setDragTarget(null);
     setDragOverTarget(null);
 
-    // Update status if moved to a different column
-    if (fromStatus !== toStatus) {
+    const prevSeq = [...taskSequence];
+    const isStatusChanged = fromStatus !== toStatus;
+
+    // Apply sequence reorder immediately
+    reorderTaskSequence(draggedKey, placement.targetKey, placement.pos, allVisibleKeys);
+
+    if (isStatusChanged) {
       setUpdatingStatus(toStatus);
+      const undoPeriod = appSettings?.undoPeriod !== undefined ? appSettings.undoPeriod : 5;
       try {
         await setTaskStatus(issue.project_id, issue.iid, toStatus);
         const stObj = boardStatuses.find((s) => s.id === toStatus);
-        toast({ type: 'success', message: `✓ Moved to ${stObj?.label || toStatus}` });
+        const fromObj = boardStatuses.find((s) => s.id === fromStatus);
+        if (undoPeriod > 0) {
+          toast.success(`Moved to ${stObj?.label || toStatus}`, {
+            duration: undoPeriod * 1000,
+            action: {
+              label: 'Undo',
+              onClick: async () => {
+                await setTaskStatus(issue.project_id, issue.iid, fromStatus);
+                setTaskSequence(prevSeq);
+                toast.info(`Moved back to ${fromObj?.label || fromStatus}`);
+              },
+            },
+          });
+        } else {
+          toast.success(`Moved to ${stObj?.label || toStatus}`);
+        }
       } catch (err: any) {
-        toast({ type: 'error', message: `Failed to move task: ${err.message}` });
+        toast.error(`Failed to move task: ${err.message}`);
+        setTaskSequence(prevSeq);
       } finally {
         setUpdatingStatus(null);
       }
     } else {
-      toast({ type: 'success', message: '✓ Sequence updated' });
-    }
-
-    reorderTaskSequence(draggedKey, targetKey, pos, allVisibleKeys);
-  }, [dragging, allVisibleKeys, setTaskStatus, boardStatuses, reorderTaskSequence, toast]);
-
-  const handleColumnDrop = useCallback(async (toStatus: string) => {
-    if (!dragging) return;
-    const { issue, fromStatus } = dragging;
-    const draggedKey = `${issue.project_id}_${issue.iid}`;
-
-    setDragging(null);
-    setDragTarget(null);
-    setDragOverTarget(null);
-
-    if (fromStatus !== toStatus) {
-      setUpdatingStatus(toStatus);
-      try {
-        await setTaskStatus(issue.project_id, issue.iid, toStatus);
-        const stObj = boardStatuses.find((s) => s.id === toStatus);
-        toast({ type: 'success', message: `✓ Moved to ${stObj?.label || toStatus}` });
-      } catch (err: any) {
-        toast({ type: 'error', message: `Failed to move task: ${err.message}` });
-      } finally {
-        setUpdatingStatus(null);
+      // Reordering within the same column
+      if (placement.targetKey && placement.targetKey !== draggedKey) {
+        const undoPeriod = appSettings?.undoPeriod !== undefined ? appSettings.undoPeriod : 5;
+        if (undoPeriod > 0) {
+          toast.success('Sequence updated', {
+            duration: undoPeriod * 1000,
+            action: {
+              label: 'Undo',
+              onClick: () => {
+                setTaskSequence(prevSeq);
+                toast.info('Sequence restored');
+              },
+            },
+          });
+        } else {
+          toast.success('Sequence updated');
+        }
       }
     }
-
-    // Place at end of column tasks in sequence
-    const colTasks = columnTasks[toStatus] || [];
-    const lastColTask = colTasks[colTasks.length - 1];
-    if (lastColTask && `${lastColTask.project_id}_${lastColTask.iid}` !== draggedKey) {
-      reorderTaskSequence(draggedKey, `${lastColTask.project_id}_${lastColTask.iid}`, 'after', allVisibleKeys);
-    }
-  }, [dragging, columnTasks, allVisibleKeys, setTaskStatus, boardStatuses, reorderTaskSequence, toast]);
+  }, [dragging, columnTasks, allVisibleKeys, setTaskStatus, boardStatuses, reorderTaskSequence, taskSequence, setTaskSequence, toast, appSettings?.undoPeriod]);
 
   const draggingId = dragging ? `${dragging.issue.project_id}_${dragging.issue.iid}` : null;
 
@@ -660,12 +738,9 @@ export default function BoardView({ onEdit }: BoardViewProps) {
               dragOverTarget={dragOverTarget}
               onDragStart={handleDragStart}
               onDragEnd={handleDragEnd}
-              onCardDragOver={handleCardDragOver}
-              onCardDragLeave={handleCardDragLeave}
-              onCardDrop={handleCardDrop}
-              onColumnDrop={handleColumnDrop}
               onColumnDragOver={handleColumnDragOver}
               onColumnDragLeave={handleColumnDragLeave}
+              onColumnDrop={handleColumnDrop}
               isDragTarget={dragTarget === status.id && dragging?.fromStatus !== status.id}
               isUpdating={updatingStatus === status.id}
               visibleColumns={boardVisibleColumns}

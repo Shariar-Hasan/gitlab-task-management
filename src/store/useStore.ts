@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import { toast } from 'sonner';
 import { storage, applyTheme, getSystemTheme, type GlobalLabel } from '../lib/utils';
 import {
   localStore, applyAccentColor,
@@ -12,6 +13,7 @@ import {
   fetchProjectLabels, fetchProjectMembers,
   createIssue, updateIssue, deleteIssue, closeIssue, reopenIssue, createLabel,
   uploadProjectFile,
+  getOrCreateBackupProject, saveBackupFile, loadBackupFile, isBackupProject,
 } from '../services/gitlabApi';
 
 export interface StoreState {
@@ -23,6 +25,14 @@ export interface StoreState {
   // Settings
   appSettings: AppSettings;
   updateAppSettings: (patch: Partial<AppSettings>) => void;
+
+  // Cloud Backup & Sync
+  cloudSyncStatus: 'idle' | 'syncing' | 'error' | 'success';
+  cloudSyncError: string | null;
+  cloudSyncLastSynced: string | null;
+  syncToCloud: (options?: { silent?: boolean }) => Promise<{ success: boolean; error?: string }>;
+  restoreFromCloud: () => Promise<{ success: boolean; error?: string }>;
+  triggerAutoSync: () => void;
 
   // Project Overrides
   projectOverrides: Record<string, ProjectOverride>;
@@ -79,7 +89,7 @@ export interface StoreState {
   uploadFileToProject: (projectId: string | number, file: File) => Promise<any>;
   updateTask: (projectId: string | number, issueIid: string | number, payload: any) => Promise<any>;
   moveTask: (oldProjectId: string | number, issueIid: string | number, newProjectId: string | number, payloadOverride?: any) => Promise<any>;
-  deleteTask: (projectId: string | number, issueIid: string | number) => Promise<void>;
+  deleteTask: (projectId: string | number, issueIid: string | number, options?: { withUndo?: boolean }) => Promise<void>;
   toggleTaskState: (projectId: string | number, issueIid: string | number, currentState: string) => Promise<void>;
   bulkCloseIssues: (items: Array<{ projectId: string | number; issueIid: string | number; state: string }>) => Promise<void>;
   bulkAssignToMe: (items: Array<{ projectId: string | number; issueIid: string | number }>) => Promise<void>;
@@ -110,7 +120,7 @@ export interface StoreState {
 
   // Task Manual Sequence (Custom ordering)
   taskSequence: string[];
-  reorderTaskSequence: (draggedKey: string, targetKey: string, position?: 'before' | 'after', allKeys?: string[], forceSeed?: boolean) => void;
+  reorderTaskSequence: (draggedKey: string, targetKey: string | null, position?: 'before' | 'after', allKeys?: string[], forceSeed?: boolean) => void;
   setTaskSequence: (sequence: string[]) => void;
 
   // Visible Columns / Fields
@@ -151,6 +161,48 @@ export interface StoreState {
   _persistFilters: (patch: Record<string, any>) => void;
 }
 
+// Map of pending deletions for grace-period undo: key -> { timer, issue }
+const pendingDeletions = new Map<string, { timer: any; issue: any }>();
+
+// Debounced auto-sync timer for on_change cloud backup
+let autoSyncTimer: any = null;
+function requestDebouncedSync() {
+  if (autoSyncTimer) clearTimeout(autoSyncTimer);
+  autoSyncTimer = setTimeout(() => {
+    const state = useStore.getState();
+    const settings = localStore.getSettings();
+    if (state.isAuthenticated && settings.cloudSyncEnabled && settings.cloudSyncFrequency === 'on_change') {
+      state.syncToCloud({ silent: true }).catch(() => {});
+    }
+  }, 3500);
+}
+
+// Periodic background check for 1h / 1d cloud backup
+if (typeof window !== 'undefined') {
+  setInterval(() => {
+    const state = useStore.getState();
+    const curSettings = localStore.getSettings();
+    if (state.isAuthenticated && curSettings.cloudSyncEnabled && curSettings.cloudSyncFrequency !== 'on_change') {
+      const last = curSettings.cloudSyncLastSynced ? new Date(curSettings.cloudSyncLastSynced).getTime() : 0;
+      const intervalMs = curSettings.cloudSyncFrequency === '1h' ? 3600000 : 86400000;
+      if (Date.now() - last > intervalMs) {
+        state.syncToCloud({ silent: true }).catch(() => {});
+      }
+    }
+  }, 10 * 60 * 1000); // Check every 10 min
+}
+
+if (typeof window !== 'undefined') {
+  window.addEventListener('beforeunload', () => {
+    pendingDeletions.forEach(({ timer, issue }) => {
+      clearTimeout(timer);
+      const state = useStore.getState();
+      deleteIssue(state.instanceUrl, state.token, issue.project_id, issue.iid).catch(() => {});
+    });
+    pendingDeletions.clear();
+  });
+}
+
 const useStore = create<StoreState>((set, get) => ({
   // ── Theme ──────────────────────────────────────────────────────────────────
   theme: 'dark',
@@ -175,6 +227,109 @@ const useStore = create<StoreState>((set, get) => ({
     if (patch.accentColor) applyAccentColor(patch.accentColor);
     const updated = localStore.updateSettings(patch);
     set({ appSettings: updated });
+    requestDebouncedSync();
+  },
+
+  // ── Cloud Backup & Sync ─────────────────────────────────────────────────────
+  cloudSyncStatus: 'idle',
+  cloudSyncError: null,
+  cloudSyncLastSynced: localStore.getSettings().cloudSyncLastSynced || null,
+
+  async syncToCloud(options?: { silent?: boolean }) {
+    const { instanceUrl, token, currentUser, isAuthenticated } = get();
+    if (!isAuthenticated || !token || !currentUser?.id) {
+      return { success: false, error: 'User is not authenticated with GitLab' };
+    }
+    set({ cloudSyncStatus: 'syncing', cloudSyncError: null });
+    try {
+      const backupProject = await getOrCreateBackupProject(instanceUrl, token, currentUser);
+      const backupData = localStore.exportDataForBackup();
+      await saveBackupFile(
+        instanceUrl,
+        token,
+        backupProject.id,
+        backupProject.default_branch || 'main',
+        backupData
+      );
+      const nowIso = new Date().toISOString();
+      const updatedSettings = localStore.updateSettings({ cloudSyncLastSynced: nowIso });
+      set({
+        cloudSyncStatus: 'success',
+        cloudSyncError: null,
+        cloudSyncLastSynced: nowIso,
+        appSettings: updatedSettings,
+      });
+      if (!options?.silent) {
+        toast.success('Backup synced to GitLab cloud repository');
+      }
+      return { success: true };
+    } catch (err: any) {
+      set({ cloudSyncStatus: 'error', cloudSyncError: err.message });
+      if (!options?.silent) {
+        toast.error(`Cloud backup failed: ${err.message}`);
+      }
+      return { success: false, error: err.message };
+    }
+  },
+
+  async restoreFromCloud() {
+    const { instanceUrl, token, currentUser, isAuthenticated } = get();
+    if (!isAuthenticated || !token || !currentUser?.id) {
+      return { success: false, error: 'User is not authenticated with GitLab' };
+    }
+    set({ cloudSyncStatus: 'syncing', cloudSyncError: null });
+    try {
+      const backupProject = await getOrCreateBackupProject(instanceUrl, token, currentUser);
+      const backupData = await loadBackupFile(
+        instanceUrl,
+        token,
+        backupProject.id,
+        backupProject.default_branch || 'main'
+      );
+      localStore.importDataFromBackup(backupData);
+
+      const importedSettings = localStore.getSettings();
+      const importedBoardStatuses = localStore.getBoardStatuses();
+      const importedCustomStatuses = localStore.getCustomStatuses();
+      const importedGlobalLabels = localStore.getGlobalLabels();
+      const importedTemplates = localStore.getTemplates();
+      const importedTaskSequence = localStore.getTaskSequence();
+      const importedPinned = localStore.getPinned();
+      const importedProjectOverrides = localStore.getProjectOverrides();
+      const importedTableCols = localStore.getTableVisibleColumns();
+      const importedBoardCols = localStore.getBoardVisibleColumns();
+
+      if (importedSettings.accentColor) {
+        applyAccentColor(importedSettings.accentColor);
+      }
+
+      set({
+        appSettings: importedSettings,
+        boardStatuses: importedBoardStatuses,
+        customStatuses: importedCustomStatuses,
+        globalLabels: importedGlobalLabels,
+        templates: importedTemplates,
+        taskSequence: importedTaskSequence,
+        pinnedKeys: importedPinned,
+        projectOverrides: importedProjectOverrides,
+        tableVisibleColumns: importedTableCols,
+        boardVisibleColumns: importedBoardCols,
+        cloudSyncStatus: 'success',
+        cloudSyncError: null,
+        cloudSyncLastSynced: importedSettings.cloudSyncLastSynced || new Date().toISOString(),
+      });
+
+      toast.success('Settings & data restored from GitLab cloud');
+      return { success: true };
+    } catch (err: any) {
+      set({ cloudSyncStatus: 'error', cloudSyncError: err.message });
+      toast.error(`Restore failed: ${err.message}`);
+      return { success: false, error: err.message };
+    }
+  },
+
+  triggerAutoSync() {
+    requestDebouncedSync();
   },
 
   // ── Project Overrides (custom names + enabled/disabled) ───────────────────
@@ -182,6 +337,7 @@ const useStore = create<StoreState>((set, get) => ({
   updateProjectOverride(projectId: string | number, patch: Partial<ProjectOverride>) {
     const map = localStore.updateProjectOverride(projectId, patch);
     set({ projectOverrides: { ...map } });
+    requestDebouncedSync();
   },
   getProjectDisplayName(project: any): string {
     if (!project) return '';
@@ -198,10 +354,12 @@ const useStore = create<StoreState>((set, get) => ({
   updateTemplates(templates: TemplateItem[]) {
     localStore.setTemplates(templates);
     set({ templates });
+    requestDebouncedSync();
   },
   resetTemplates() {
     const defaults = localStore.resetTemplates();
     set({ templates: defaults });
+    requestDebouncedSync();
   },
 
   // ── Global Labels (persisted across all projects) ─────────────────────────
@@ -221,6 +379,7 @@ const useStore = create<StoreState>((set, get) => ({
     const updated = [...current, created];
     localStore.setGlobalLabels(updated);
     set({ globalLabels: updated });
+    requestDebouncedSync();
     return created;
   },
   updateGlobalLabel(id: string, patch: Partial<GlobalLabelDef>) {
@@ -229,15 +388,18 @@ const useStore = create<StoreState>((set, get) => ({
     );
     localStore.setGlobalLabels(updated);
     set({ globalLabels: updated });
+    requestDebouncedSync();
   },
   deleteGlobalLabel(id: string) {
     const updated = get().globalLabels.filter((l) => l.id !== id);
     localStore.setGlobalLabels(updated);
     set({ globalLabels: updated });
+    requestDebouncedSync();
   },
   resetGlobalLabels() {
     const defaults = localStore.resetGlobalLabels();
     set({ globalLabels: defaults });
+    requestDebouncedSync();
   },
 
   // ── Auth ───────────────────────────────────────────────────────────────────
@@ -300,7 +462,8 @@ const useStore = create<StoreState>((set, get) => ({
     const { instanceUrl, token } = get();
     set({ projectsLoading: true, projectsError: null });
     try {
-      const projects = await fetchAllProjects(instanceUrl, token, { force });
+      const all = await fetchAllProjects(instanceUrl, token, { force });
+      const projects = (all || []).filter((p) => !isBackupProject(p));
       localStore.setProjects(projects);
       set({ projects, projectsLoading: false });
       return projects;
@@ -333,7 +496,7 @@ const useStore = create<StoreState>((set, get) => ({
    * - If localStorage is empty (first ever load) → fetch from API
    */
   async initializeData() {
-    const cachedProjects = localStore.getProjects();
+    const cachedProjects = localStore.getProjects().filter((p) => !isBackupProject(p));
     const rawIssues      = localStore.getIssues();
     const hasData        = localStore.hasEverFetched();
 
@@ -344,6 +507,15 @@ const useStore = create<StoreState>((set, get) => ({
     }
 
     const settings = localStore.getSettings();
+
+    // Check scheduled cloud backup if interval elapsed
+    if (settings.cloudSyncEnabled && settings.cloudSyncFrequency !== 'on_change') {
+      const last = settings.cloudSyncLastSynced ? new Date(settings.cloudSyncLastSynced).getTime() : 0;
+      const intervalMs = settings.cloudSyncFrequency === '1h' ? 3600000 : 86400000;
+      if (Date.now() - last > intervalMs) {
+        get().syncToCloud({ silent: true }).catch(() => {});
+      }
+    }
 
     // Load persistent filters if enabled
     let filterState = {
@@ -537,15 +709,56 @@ const useStore = create<StoreState>((set, get) => ({
     return newIssue;
   },
 
-  async deleteTask(projectId: string | number, issueIid: string | number): Promise<void> {
-    const { instanceUrl, token } = get();
+  async deleteTask(projectId: string | number, issueIid: string | number, { withUndo = true }: { withUndo?: boolean } = {}): Promise<void> {
+    const { instanceUrl, token, issues, appSettings } = get();
+    const key = `${projectId}_${issueIid}`;
+    const issue = issues.find((i) => String(i.project_id) === String(projectId) && String(i.iid) === String(issueIid));
+    const undoPeriod = appSettings.undoPeriod !== undefined ? appSettings.undoPeriod : 5;
+
     get()._removeIssueFromStore(projectId, issueIid);
     localStore.deleteCustomStatus(projectId, issueIid);
-    if (get().pinnedKeys.has(`${projectId}_${issueIid}`)) {
+    if (get().pinnedKeys.has(key)) {
       get().togglePin(projectId, issueIid);
     }
-    try { await deleteIssue(instanceUrl, token, projectId, issueIid); }
-    catch (err) { await get().initializeData(); throw err; }
+
+    if (!withUndo || undoPeriod <= 0 || !issue) {
+      try {
+        await deleteIssue(instanceUrl, token, projectId, issueIid);
+        toast.success(issue ? `Deleted "${issue.title}"` : 'Task deleted');
+      } catch (err) {
+        await get().initializeData();
+        throw err;
+      }
+      return;
+    }
+
+    // Schedule API deletion after grace period
+    const timer = setTimeout(async () => {
+      pendingDeletions.delete(key);
+      try {
+        await deleteIssue(instanceUrl, token, projectId, issueIid);
+      } catch (err) {
+        console.error('Failed to permanently delete task from GitLab:', err);
+      }
+    }, undoPeriod * 1000);
+
+    pendingDeletions.set(key, { timer, issue });
+
+    toast.success(`Deleted "${issue.title}"`, {
+      duration: undoPeriod * 1000,
+      action: {
+        label: 'Undo',
+        onClick: () => {
+          const pending = pendingDeletions.get(key);
+          if (pending) {
+            clearTimeout(pending.timer);
+            pendingDeletions.delete(key);
+            get()._addIssueToStore(pending.issue);
+            toast.info(`Restored "${pending.issue.title}"`);
+          }
+        },
+      },
+    });
   },
 
   async toggleTaskState(projectId: string | number, issueIid: string | number, currentState: string): Promise<void> {
@@ -777,34 +990,40 @@ const useStore = create<StoreState>((set, get) => ({
   updateBoardStatus(id: string, patch: Partial<BoardStatusConfig>) {
     const list = localStore.updateBoardStatus(id, patch);
     set({ boardStatuses: [...list] });
+    requestDebouncedSync();
   },
 
   addBoardStatus(label: string, color: string) {
     const list = localStore.addBoardStatus(label, color);
     set({ boardStatuses: [...list] });
+    requestDebouncedSync();
   },
 
   deleteBoardStatus(id: string) {
     const list = localStore.deleteBoardStatus(id);
     set({ boardStatuses: [...list] });
+    requestDebouncedSync();
   },
 
   resetBoardStatuses() {
     const list = localStore.resetBoardStatuses();
     set({ boardStatuses: [...list] });
+    requestDebouncedSync();
   },
 
   // Task Sequence
   taskSequence: localStore.getTaskSequence(),
 
-  reorderTaskSequence(draggedKey: string, targetKey: string, position: 'before' | 'after' = 'before', allKeys?: string[], forceSeed = false) {
+  reorderTaskSequence(draggedKey: string, targetKey: string | null, position: 'before' | 'after' = 'before', allKeys?: string[], forceSeed = false) {
     const updated = localStore.reorderTask(draggedKey, targetKey, position, allKeys, forceSeed);
     set({ taskSequence: [...updated] });
+    requestDebouncedSync();
   },
 
   setTaskSequence(sequence: string[]) {
     const updated = localStore.setTaskSequence(sequence);
     set({ taskSequence: [...updated] });
+    requestDebouncedSync();
   },
 
   // Visible Columns
@@ -814,39 +1033,46 @@ const useStore = create<StoreState>((set, get) => ({
   setTableVisibleColumns(cols: Partial<TableVisibleColumns>) {
     const updated = localStore.setTableVisibleColumns(cols);
     set({ tableVisibleColumns: { ...updated } });
+    requestDebouncedSync();
   },
 
   setBoardVisibleColumns(cols: Partial<BoardVisibleColumns>) {
     const updated = localStore.setBoardVisibleColumns(cols);
     set({ boardVisibleColumns: { ...updated } });
+    requestDebouncedSync();
   },
 
   toggleTableColumn(col: keyof TableVisibleColumns) {
     const current = get().tableVisibleColumns;
     const updated = localStore.setTableVisibleColumns({ [col]: !current[col] });
     set({ tableVisibleColumns: { ...updated } });
+    requestDebouncedSync();
   },
 
   toggleBoardColumn(col: keyof BoardVisibleColumns) {
     const current = get().boardVisibleColumns;
     const updated = localStore.setBoardVisibleColumns({ [col]: !current[col] });
     set({ boardVisibleColumns: { ...updated } });
+    requestDebouncedSync();
   },
 
   resetTableVisibleColumns() {
     const updated = localStore.setTableVisibleColumns(DEFAULT_TABLE_VISIBLE_COLUMNS);
     set({ tableVisibleColumns: { ...updated } });
+    requestDebouncedSync();
   },
 
   resetBoardVisibleColumns() {
     const updated = localStore.setBoardVisibleColumns(DEFAULT_BOARD_VISIBLE_COLUMNS);
     set({ boardVisibleColumns: { ...updated } });
+    requestDebouncedSync();
   },
 
   async setTaskStatus(projectId: string | number, iid: string | number, newStatus: string): Promise<void> {
     const { instanceUrl, token, issues } = get();
     const map = localStore.setCustomStatus(projectId, iid, newStatus);
     set({ customStatuses: { ...map } });
+    requestDebouncedSync();
 
     const issue = issues.find((i) => i.project_id === projectId && i.iid === iid);
     if (!issue) return;
@@ -890,6 +1116,7 @@ const useStore = create<StoreState>((set, get) => ({
   togglePin(projectId: string | number, iid: string | number) {
     const pinned = localStore.togglePin(projectId, iid);
     set({ pinnedKeys: new Set(pinned) });
+    requestDebouncedSync();
   },
   isPinned: (projectId: string | number, iid: string | number): boolean => get().pinnedKeys.has(`${projectId}_${iid}`),
 

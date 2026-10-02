@@ -138,6 +138,18 @@ export async function validateConnection(instanceUrl: string, token: string): Pr
   return data;
 }
 
+// ── Backup Project Prefix & Filter ─────────────────────────────────────────────
+export const BACKUP_PROJECT_PREFIX = 'gitlab-task-automation-backup-by-';
+
+export function isBackupProject(project: any): boolean {
+  if (!project) return false;
+  const name = String(project.name || '').toLowerCase();
+  const path = String(project.path || '').toLowerCase();
+  const pathWithNs = String(project.path_with_namespace || '').toLowerCase();
+  const prefix = BACKUP_PROJECT_PREFIX.toLowerCase();
+  return name.startsWith(prefix) || path.startsWith(prefix) || pathWithNs.includes(prefix);
+}
+
 // ── Projects ──────────────────────────────────────────────────────────────────
 export async function fetchAllProjects(instanceUrl: string, token: string, { force = false }: { force?: boolean } = {}): Promise<any[]> {
   const cacheKey = `projects_${instanceUrl}`;
@@ -159,8 +171,11 @@ export async function fetchAllProjects(instanceUrl: string, token: string, { for
     page = nextPage;
   }
 
-  sessionCache.set(cacheKey, projects, TTL_PROJECTS);
-  return projects;
+  // Exclude backup storage projects from regular project list
+  const filtered = projects.filter((p) => !isBackupProject(p));
+
+  sessionCache.set(cacheKey, filtered, TTL_PROJECTS);
+  return filtered;
 }
 
 // ── Issues (per project) ──────────────────────────────────────────────────────
@@ -403,4 +418,176 @@ export async function fetchWorkItems(instanceUrl: string, token: string, project
   }
 
   return items;
+}
+
+// ── Cloud Backup & Sync ───────────────────────────────────────────────────────
+export const BACKUP_FILE_NAME = 'settings.json';
+
+// Helper for UTF-8 Base64 encoding/decoding without Latin1 errors
+export function utf8ToBase64(str: string): string {
+  return btoa(unescape(encodeURIComponent(str)));
+}
+
+export function base64ToUtf8(b64: string): string {
+  return decodeURIComponent(escape(atob(b64)));
+}
+
+export async function getOrCreateBackupProject(
+  instanceUrl: string,
+  token: string,
+  currentUser: { id: string | number; username?: string }
+): Promise<any> {
+  const projectName = `${BACKUP_PROJECT_PREFIX}${currentUser.id}`;
+
+  // 1. Search existing projects
+  try {
+    const { data } = await restRequest<any[]>(
+      instanceUrl,
+      token,
+      `/projects?search=${encodeURIComponent(projectName)}&membership=true&simple=true`
+    );
+    const existing = data?.find(
+      (p) => p.name === projectName || p.path === projectName || p.path_with_namespace?.endsWith(projectName)
+    );
+    if (existing) {
+      return existing;
+    }
+  } catch (err) {
+    console.warn('Backup project search error:', err);
+  }
+
+  // 2. Try to fetch by user namespace path directly
+  if (currentUser.username) {
+    try {
+      const fullPath = encodeURIComponent(`${currentUser.username}/${projectName}`);
+      const { data } = await restRequest<any>(instanceUrl, token, `/projects/${fullPath}`);
+      if (data?.id) return data;
+    } catch {
+      // 404 or access error, proceed to create
+    }
+  }
+
+  // 3. Create private project with README
+  try {
+    const { data: newProject } = await restRequest<any>(instanceUrl, token, '/projects', {
+      method: 'POST',
+      body: JSON.stringify({
+        name: projectName,
+        path: projectName,
+        visibility: 'private',
+        initialize_with_readme: true,
+        description: 'GitLab Task Automation automated settings & preferences cloud backup',
+      }),
+    });
+    return newProject;
+  } catch (err: any) {
+    // If project was just created or already existed
+    if (currentUser.username) {
+      try {
+        const fullPath = encodeURIComponent(`${currentUser.username}/${projectName}`);
+        const { data } = await restRequest<any>(instanceUrl, token, `/projects/${fullPath}`);
+        if (data?.id) return data;
+      } catch {
+        // ignore
+      }
+    }
+    throw err;
+  }
+}
+
+export async function saveBackupFile(
+  instanceUrl: string,
+  token: string,
+  projectId: string | number,
+  defaultBranch: string = 'main',
+  backupData: any
+): Promise<any> {
+  const filePath = encodeURIComponent(BACKUP_FILE_NAME);
+  const content = JSON.stringify(backupData, null, 2);
+  const b64 = utf8ToBase64(content);
+  const branch = defaultBranch || 'main';
+
+  // Check if file already exists
+  let fileExists = false;
+  try {
+    await restRequest(
+      instanceUrl,
+      token,
+      `/projects/${encodeURIComponent(projectId)}/repository/files/${filePath}?ref=${encodeURIComponent(branch)}`
+    );
+    fileExists = true;
+  } catch (err: any) {
+    if (err.status === 404) {
+      fileExists = false;
+    } else {
+      if (branch === 'main') {
+        try {
+          await restRequest(
+            instanceUrl,
+            token,
+            `/projects/${encodeURIComponent(projectId)}/repository/files/${filePath}?ref=master`
+          );
+          fileExists = true;
+        } catch {
+          fileExists = false;
+        }
+      }
+    }
+  }
+
+  const method = fileExists ? 'PUT' : 'POST';
+  const commitMessage = fileExists
+    ? `Update settings backup [${new Date().toISOString()}]`
+    : `Initial settings backup [${new Date().toISOString()}]`;
+
+  const { data } = await restRequest(
+    instanceUrl,
+    token,
+    `/projects/${encodeURIComponent(projectId)}/repository/files/${filePath}`,
+    {
+      method,
+      body: JSON.stringify({
+        branch,
+        commit_message: commitMessage,
+        content: b64,
+        encoding: 'base64',
+      }),
+    }
+  );
+
+  return data;
+}
+
+export async function loadBackupFile(
+  instanceUrl: string,
+  token: string,
+  projectId: string | number,
+  defaultBranch: string = 'main'
+): Promise<any> {
+  const filePath = encodeURIComponent(BACKUP_FILE_NAME);
+  let res: any;
+  try {
+    res = await restRequest(
+      instanceUrl,
+      token,
+      `/projects/${encodeURIComponent(projectId)}/repository/files/${filePath}?ref=${encodeURIComponent(defaultBranch || 'main')}`
+    );
+  } catch (err: any) {
+    if (defaultBranch !== 'master') {
+      res = await restRequest(
+        instanceUrl,
+        token,
+        `/projects/${encodeURIComponent(projectId)}/repository/files/${filePath}?ref=master`
+      );
+    } else {
+      throw err;
+    }
+  }
+
+  if (!res.data?.content) {
+    throw new Error('Backup file content is empty');
+  }
+
+  const raw = base64ToUtf8(res.data.content);
+  return JSON.parse(raw);
 }

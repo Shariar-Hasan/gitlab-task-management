@@ -14,7 +14,7 @@ import {
 } from 'lucide-react';
 import { Button, Badge, Avatar, Spinner } from './ui/index';
 import { DropdownMenu, DropdownItem, DropdownSeparator, useConfirm, Modal, ModalHeader, ModalBody, ModalFooter } from './ui/overlay';
-import { useToast } from './ui/overlay';
+import { useToast, toast } from './ui/overlay';
 import useStore from '../store/useStore';
 import { cn, formatDate, getDueDateInfo, getDueDateBadgeClass, getVisibleGlobalLabels } from '../lib/utils';
 import { TASK_STATUSES, getEffectiveStatus, compareTaskSequence, type TableVisibleColumns } from '../lib/localStore';
@@ -691,7 +691,7 @@ function StatusCell({ issue }: { issue: any }) {
   const ref = useRef<HTMLButtonElement>(null);
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
-  const { customStatuses, setTaskStatus, boardStatuses } = useStore();
+  const { customStatuses, setTaskStatus, boardStatuses, appSettings } = useStore();
 
   const allStatuses = boardStatuses?.length ? boardStatuses : TASK_STATUSES;
   const currentStatusId = getEffectiveStatus(issue, customStatuses);
@@ -711,8 +711,28 @@ function StatusCell({ issue }: { issue: any }) {
     setOpen(false);
     if (statusId === currentStatusId) return;
     setLoading(true);
+    const prevStatusId = currentStatusId;
+    const prevObj = allStatuses.find((s) => s.id === prevStatusId);
+    const nextObj = allStatuses.find((s) => s.id === statusId);
+    const undoPeriod = appSettings?.undoPeriod !== undefined ? appSettings.undoPeriod : 5;
     try {
       await setTaskStatus(issue.project_id, issue.iid, statusId);
+      if (undoPeriod > 0) {
+        toast.success(`Status changed to "${nextObj?.label || statusId}"`, {
+          duration: undoPeriod * 1000,
+          action: {
+            label: 'Undo',
+            onClick: async () => {
+              await setTaskStatus(issue.project_id, issue.iid, prevStatusId);
+              toast.info(`Status reverted to "${prevObj?.label || prevStatusId}"`);
+            },
+          },
+        });
+      } else {
+        toast.success(`Status changed to "${nextObj?.label || statusId}"`);
+      }
+    } catch {
+      toast.error('Failed to update status');
     } finally {
       setLoading(false);
     }
@@ -1220,6 +1240,8 @@ function BulkActionBar({
 // ─────────────────────────────────────────────────────────────────────────────
 interface TaskTableRowProps {
   row: Row<any>;
+  isSelected: boolean;
+  columnVisibility: Record<string, boolean>;
   isPinned: boolean;
   compact?: boolean;
   isDragging?: boolean;
@@ -1233,7 +1255,7 @@ interface TaskTableRowProps {
 
 const TaskTableRow = React.memo(
   function TaskTableRow({
-    row, isPinned, compact, isDragging, dragOverPos,
+    row, isSelected, columnVisibility, isPinned, compact, isDragging, dragOverPos,
     onDragStart, onDragEnd, onDragOver, onDragLeave, onDrop
   }: TaskTableRowProps) {
     return (
@@ -1247,7 +1269,7 @@ const TaskTableRow = React.memo(
         onDrop={(e) => onDrop?.(e, row)}
         className={cn(
           'group border-b border-[var(--border)] hover:bg-[var(--surface)] transition-all duration-150 theme-transition relative',
-          row.getIsSelected() && 'bg-[var(--accent-muted)]',
+          isSelected && 'bg-[var(--accent-muted)]',
           isPinned && 'border-l-2 border-l-[var(--accent)] bg-[var(--surface-2)]/30 shadow-xs',
           isDragging && 'opacity-30 bg-[var(--accent-muted)]/20',
           dragOverPos === 'before' && 'border-t-2 !border-t-[var(--accent)] shadow-xs',
@@ -1265,7 +1287,8 @@ const TaskTableRow = React.memo(
   (prev, next) => {
     return (
       prev.row.original === next.row.original &&
-      prev.row.getIsSelected() === next.row.getIsSelected() &&
+      prev.isSelected === next.isSelected &&
+      prev.columnVisibility === next.columnVisibility &&
       prev.isPinned === next.isPinned &&
       prev.compact === next.compact &&
       prev.isDragging === next.isDragging &&
@@ -1287,9 +1310,9 @@ export default function TaskTable({ onEdit }: TaskTableProps) {
     globalFilter, filterProjects, filterStatus, filterLabels, assignedToMe, currentUser,
     updateTask, deleteTask, toggleTaskState,
     pinnedKeys, togglePin,
-    bulkCloseIssues, bulkAssignToMe,
+    bulkCloseIssues, bulkAssignToMe, bulkReopenIssues,
     globalLabels, appSettings, customStatuses,
-    taskSequence, reorderTaskSequence,
+    taskSequence, reorderTaskSequence, setTaskSequence,
     tableVisibleColumns, toggleTableColumn, resetTableVisibleColumns,
   } = useStore();
   const toast = useToast();
@@ -1446,25 +1469,51 @@ export default function TaskTable({ onEdit }: TaskTableProps) {
   }, [updateTask, toast]);
 
   const handleDelete = useCallback(async (issue: any) => {
-    try { await deleteTask(issue.project_id, issue.iid); toast({ type: 'success', message: '✓ Deleted' }); }
+    try { await deleteTask(issue.project_id, issue.iid); }
     catch (e: any) { toast({ type: 'error', message: e.message }); }
   }, [deleteTask, toast]);
 
   const handleToggleState = useCallback(async (issue: any) => {
-    try { await toggleTaskState(issue.project_id, issue.iid, issue.state); }
+    const prevState = issue.state;
+    const nextState = prevState === 'opened' ? 'closed' : 'opened';
+    const actionLabel = nextState === 'closed' ? 'Closed' : 'Reopened';
+    const revertLabel = prevState === 'closed' ? 'Closed' : 'Reopened';
+    const undoPeriod = appSettings?.undoPeriod !== undefined ? appSettings.undoPeriod : 5;
+    try {
+      await toggleTaskState(issue.project_id, issue.iid, prevState);
+      if (undoPeriod > 0) {
+        toast.success(`Task ${actionLabel.toLowerCase()}`, {
+          duration: undoPeriod * 1000,
+          action: {
+            label: 'Undo',
+            onClick: async () => {
+              await toggleTaskState(issue.project_id, issue.iid, nextState);
+              toast.info(`Task ${revertLabel.toLowerCase()}`);
+            },
+          },
+        });
+      } else {
+        toast.success(`Task ${actionLabel.toLowerCase()}`);
+      }
+    }
     catch (e: any) { toast({ type: 'error', message: e.message }); }
-  }, [toggleTaskState, toast]);
+  }, [toggleTaskState, toast, appSettings?.undoPeriod]);
 
   const columns: ColumnDef<any>[] = useMemo(() => [
     // ── Checkbox & Pin & Drag Handle ──
     {
       id: 'select', size: 84, enableSorting: false,
       header: ({ table }) => (
-        <div className="flex items-center gap-1.5">
-          <input type="checkbox" className="h-4 w-4 rounded accent-[var(--accent)] cursor-pointer"
+        <div className="flex items-center gap-1">
+          <span className="w-[22px] shrink-0" />
+          <input
+            type="checkbox"
+            className="h-4 w-4 rounded accent-[var(--accent)] cursor-pointer"
             checked={table.getIsAllPageRowsSelected()}
             ref={(el) => { if (el) el.indeterminate = table.getIsSomePageRowsSelected(); }}
-            onChange={table.getToggleAllPageRowsSelectedHandler()}
+            onChange={(e) => table.toggleAllPageRowsSelected(e.target.checked)}
+            onClick={(e) => e.stopPropagation()}
+            title="Select all tasks on page"
           />
         </div>
       ),
@@ -1489,10 +1538,13 @@ export default function TaskTable({ onEdit }: TaskTableProps) {
             >
               <GripVertical className="h-3.5 w-3.5 pointer-events-none" />
             </span>
-            <input type="checkbox" className="h-4 w-4 rounded accent-[var(--accent)] cursor-pointer"
+            <input
+              type="checkbox"
+              className="h-4 w-4 rounded accent-[var(--accent)] cursor-pointer"
               checked={row.getIsSelected()}
-              onChange={row.getToggleSelectedHandler()}
+              onChange={(e) => row.toggleSelected(e.target.checked)}
               onClick={(e) => e.stopPropagation()}
+              title="Select task"
             />
             <button
               type="button"
@@ -1738,29 +1790,75 @@ export default function TaskTable({ onEdit }: TaskTableProps) {
     const allVisibleKeys = filteredIssues.map((i) => `${i.project_id}_${i.iid}`);
     const isSortingActive = sorting.length > 0;
 
+    const prevSeq = [...taskSequence];
     reorderTaskSequence(draggingKey, targetKey, pos, allVisibleKeys, isSortingActive);
     if (isSortingActive) {
       setSorting([]);
     }
-    toast({ type: 'success', message: '✓ Sequence updated' });
+    const undoPeriod = appSettings?.undoPeriod !== undefined ? appSettings.undoPeriod : 5;
+    if (undoPeriod > 0) {
+      toast.success('Sequence updated', {
+        duration: undoPeriod * 1000,
+        action: {
+          label: 'Undo',
+          onClick: () => {
+            setTaskSequence(prevSeq);
+            toast.info('Sequence restored');
+          },
+        },
+      });
+    } else {
+      toast.success('Sequence updated');
+    }
     setDraggingKey(null);
     setDragOverTarget(null);
-  }, [draggingKey, filteredIssues, reorderTaskSequence, sorting, toast]);
+  }, [draggingKey, filteredIssues, reorderTaskSequence, sorting, taskSequence, setTaskSequence, toast, appSettings?.undoPeriod]);
 
   const selectedRows = table.getSelectedRowModel().rows;
   const hasSelection = selectedRows.length > 0;
 
   const handleBulkClose = async () => {
     const items = selectedRows.map((r) => ({ projectId: r.original.project_id, issueIid: r.original.iid, state: r.original.state }));
+    const openedItems = items.filter((i) => i.state === 'opened');
+    if (!openedItems.length) return;
     await bulkCloseIssues(items);
     setRowSelection({});
-    toast({ type: 'success', message: `✓ Closed ${items.filter(i => i.state === 'opened').length} tasks` });
+    const undoPeriod = appSettings?.undoPeriod !== undefined ? appSettings.undoPeriod : 5;
+    if (undoPeriod > 0) {
+      toast.success(`Closed ${openedItems.length} task(s)`, {
+        duration: undoPeriod * 1000,
+        action: {
+          label: 'Undo',
+          onClick: async () => {
+            await bulkReopenIssues(openedItems.map((i) => ({ projectId: i.projectId, issueIid: i.issueIid })));
+            toast.info(`Reopened ${openedItems.length} task(s)`);
+          },
+        },
+      });
+    } else {
+      toast.success(`Closed ${openedItems.length} task(s)`);
+    }
   };
   const handleBulkOpen = async () => {
     const items = selectedRows.filter((r) => r.original.state === 'closed').map((r) => ({ projectId: r.original.project_id, issueIid: r.original.iid }));
-    await Promise.all(items.map((i) => toggleTaskState(i.projectId, i.issueIid, 'closed')));
+    if (!items.length) return;
+    await bulkReopenIssues(items);
     setRowSelection({});
-    toast({ type: 'success', message: `✓ Reopened ${items.length} tasks` });
+    const undoPeriod = appSettings?.undoPeriod !== undefined ? appSettings.undoPeriod : 5;
+    if (undoPeriod > 0) {
+      toast.success(`Reopened ${items.length} task(s)`, {
+        duration: undoPeriod * 1000,
+        action: {
+          label: 'Undo',
+          onClick: async () => {
+            await bulkCloseIssues(items.map((i) => ({ ...i, state: 'opened' })));
+            toast.info(`Closed ${items.length} task(s)`);
+          },
+        },
+      });
+    } else {
+      toast.success(`Reopened ${items.length} task(s)`);
+    }
   };
   const handleBulkAssign = async () => {
     const items = selectedRows.map((r) => ({ projectId: r.original.project_id, issueIid: r.original.iid }));
@@ -1897,6 +1995,8 @@ export default function TaskTable({ onEdit }: TaskTableProps) {
                   <TaskTableRow
                     key={row.id}
                     row={row}
+                    isSelected={row.getIsSelected()}
+                    columnVisibility={columnVisibility}
                     isPinned={pinnedKeys.has(key)}
                     compact={appSettings?.compactTable}
                     isDragging={draggingKey === key}

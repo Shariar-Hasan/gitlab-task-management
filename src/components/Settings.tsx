@@ -319,23 +319,25 @@ function AppearanceSettings() {
           {clockFormats.map((c) => {
             const active = (appSettings.clockFormat || '12h') === c.value;
             return (
-              <label
+              <button
                 key={c.value}
+                type="button"
+                onClick={() => updateAppSettings({ clockFormat: c.value })}
                 className={cn(
-                  'flex items-start gap-3 p-3 rounded-xl border cursor-pointer transition-all',
+                  'flex items-start gap-3 p-3 rounded-xl border cursor-pointer transition-all text-left',
                   active
-                    ? 'border-[var(--accent)] bg-[var(--accent-muted)] shadow-xs'
+                    ? 'border-[var(--accent)] bg-[var(--accent-muted)] shadow-xs ring-1 ring-[var(--accent)]'
                     : 'border-[var(--border)] bg-[var(--surface-2)] hover:border-[var(--border-hover)]'
                 )}
               >
-                <input
-                  type="radio"
-                  name="clockFormat"
-                  value={c.value}
-                  checked={active}
-                  onChange={() => updateAppSettings({ clockFormat: c.value })}
-                  className="accent-[var(--accent)] mt-0.5"
-                />
+                <div
+                  className={cn(
+                    'h-4 w-4 rounded-full border flex items-center justify-center shrink-0 mt-0.5 transition-colors',
+                    active ? 'border-[var(--accent)] bg-[var(--accent)]' : 'border-[var(--border-hover)] bg-[var(--surface-3)]'
+                  )}
+                >
+                  {active && <div className="h-1.5 w-1.5 rounded-full bg-white" />}
+                </div>
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center justify-between">
                     <p className="text-xs font-semibold text-[var(--text-1)]">{c.label}</p>
@@ -343,7 +345,7 @@ function AppearanceSettings() {
                   </div>
                   <p className="text-[10px] text-[var(--text-3)] mt-1">{c.desc}</p>
                 </div>
-              </label>
+              </button>
             );
           })}
         </div>
@@ -356,28 +358,30 @@ function AppearanceSettings() {
           {timeFormats.map((f) => {
             const active = appSettings.timeFormat === f.value;
             return (
-              <label
+              <button
                 key={f.value}
+                type="button"
+                onClick={() => updateAppSettings({ timeFormat: f.value })}
                 className={cn(
-                  'flex items-center gap-3 p-3 rounded-xl border cursor-pointer transition-all',
+                  'w-full flex items-center gap-3 p-3 rounded-xl border cursor-pointer transition-all text-left',
                   active
-                    ? 'border-[var(--accent)] bg-[var(--accent-muted)]'
+                    ? 'border-[var(--accent)] bg-[var(--accent-muted)] ring-1 ring-[var(--accent)]'
                     : 'border-[var(--border)] bg-[var(--surface-2)] hover:border-[var(--border-hover)]'
                 )}
               >
-                <input
-                  type="radio"
-                  name="timeFormat"
-                  value={f.value}
-                  checked={active}
-                  onChange={() => updateAppSettings({ timeFormat: f.value })}
-                  className="accent-[var(--accent)]"
-                />
+                <div
+                  className={cn(
+                    'h-4 w-4 rounded-full border flex items-center justify-center shrink-0 transition-colors',
+                    active ? 'border-[var(--accent)] bg-[var(--accent)]' : 'border-[var(--border-hover)] bg-[var(--surface-3)]'
+                  )}
+                >
+                  {active && <div className="h-1.5 w-1.5 rounded-full bg-white" />}
+                </div>
                 <div>
                   <p className="text-xs font-medium text-[var(--text-1)]">{f.label}</p>
                   <p className="text-[11px] text-[var(--text-3)]">{f.example}</p>
                 </div>
-              </label>
+              </button>
             );
           })}
         </div>
@@ -392,26 +396,20 @@ function AppearanceSettings() {
           {dateFormats.map((d) => {
             const active = (appSettings.dateFormat || 'MMM d, yyyy') === d.value;
             return (
-              <label
+              <button
                 key={d.value}
+                type="button"
+                onClick={() => updateAppSettings({ dateFormat: d.value })}
                 className={cn(
                   'flex flex-col p-2.5 rounded-xl border cursor-pointer transition-all text-center',
                   active
-                    ? 'border-[var(--accent)] bg-[var(--accent-muted)]'
+                    ? 'border-[var(--accent)] bg-[var(--accent-muted)] ring-1 ring-[var(--accent)]'
                     : 'border-[var(--border)] bg-[var(--surface-2)] hover:border-[var(--border-hover)]'
                 )}
               >
-                <input
-                  type="radio"
-                  name="dateFormat"
-                  value={d.value}
-                  checked={active}
-                  onChange={() => updateAppSettings({ dateFormat: d.value })}
-                  className="sr-only"
-                />
                 <span className="text-xs font-medium text-[var(--text-1)]">{d.label}</span>
                 <span className="text-[10px] text-[var(--accent)] mt-0.5">{d.example}</span>
-              </label>
+              </button>
             );
           })}
         </div>
@@ -1273,6 +1271,48 @@ function TaskSettings() {
         />
       </Card>
 
+      {/* Undo Grace Period on Major Changes */}
+      <Card className="p-4">
+        <div className="flex items-center gap-2 mb-2">
+          <RotateCcw className="h-4 w-4 text-[var(--accent)]" />
+          <h4 className="text-xs font-semibold text-[var(--text-1)]">Undo Period on Major Changes</h4>
+        </div>
+        <p className="text-xs text-[var(--text-3)] mb-3 leading-relaxed">
+          When changing task status, deleting a task, toggling open/close, or reordering sequence, a Sonner toast with an Undo action is displayed for this duration before changes become permanent.
+        </p>
+        <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
+          {[
+            { value: 0, label: 'Instant', desc: 'No undo' },
+            { value: 3, label: '3 Seconds', desc: 'Quick' },
+            { value: 5, label: '5 Seconds', desc: 'Default' },
+            { value: 8, label: '8 Seconds', desc: 'Relaxed' },
+            { value: 10, label: '10 Seconds', desc: 'Generous' },
+          ].map((opt) => {
+            const currentVal = appSettings.undoPeriod !== undefined ? appSettings.undoPeriod : 5;
+            const active = currentVal === opt.value;
+            return (
+              <button
+                key={opt.value}
+                type="button"
+                onClick={() => {
+                  updateAppSettings({ undoPeriod: opt.value });
+                  toast.success(opt.value === 0 ? 'Undo disabled' : `Undo period set to ${opt.value}s`);
+                }}
+                className={cn(
+                  'flex flex-col items-center justify-center p-2.5 rounded-xl border text-xs cursor-pointer transition-all text-center',
+                  active
+                    ? 'border-[var(--accent)] bg-[var(--accent-muted)] font-medium text-[var(--accent)] ring-1 ring-[var(--accent)]'
+                    : 'border-[var(--border)] bg-[var(--surface-2)] text-[var(--text-2)] hover:border-[var(--border-hover)]'
+                )}
+              >
+                <span className="font-semibold text-xs">{opt.label}</span>
+                <span className="text-[10px] text-[var(--text-3)] mt-0.5">{opt.desc}</span>
+              </button>
+            );
+          })}
+        </div>
+      </Card>
+
       {/* Closed Issue Retention */}
       <Card className="p-4">
         <div className="flex items-center gap-2 mb-2">
@@ -1935,6 +1975,233 @@ function UpdatesSettings() {
   );
 }
 
+// ── Cloud Backup & Sync Settings ──────────────────────────────────────────────
+function CloudSyncSettings() {
+  const {
+    instanceUrl, token, currentUser, isAuthenticated,
+    appSettings, updateAppSettings,
+    cloudSyncStatus, cloudSyncError, cloudSyncLastSynced,
+    syncToCloud, restoreFromCloud
+  } = useStore();
+  const toast = useToast();
+  const [confirmRestoreOpen, setConfirmRestoreOpen] = useState(false);
+
+  const enabled = appSettings?.cloudSyncEnabled !== false;
+  const frequency = appSettings?.cloudSyncFrequency || 'on_change';
+  const backupProjectName = currentUser?.id
+    ? `gitlab-task-automation-backup-by-${currentUser.id}`
+    : 'gitlab-task-automation-backup-by-<userId>';
+
+  const handleToggle = (checked: boolean) => {
+    updateAppSettings({ cloudSyncEnabled: checked });
+    toast.info(checked ? 'Cloud backup enabled' : 'Cloud backup disabled');
+  };
+
+  const handleFrequencyChange = (freq: 'on_change' | '1h' | '1d') => {
+    updateAppSettings({ cloudSyncFrequency: freq });
+    toast.success(`Sync frequency: ${freq === 'on_change' ? 'Sync on change' : freq === '1h' ? 'Every 1 hour' : 'Every day'}`);
+  };
+
+  const handleSyncNow = async () => {
+    await syncToCloud();
+  };
+
+  const handleRestore = async () => {
+    setConfirmRestoreOpen(false);
+    await restoreFromCloud();
+  };
+
+  const formatLastSync = (iso: string | null) => {
+    if (!iso) return 'Never synced';
+    try {
+      const d = new Date(iso);
+      return `${d.toLocaleDateString()} at ${d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
+    } catch {
+      return iso;
+    }
+  };
+
+  return (
+    <div className="space-y-5">
+      <div>
+        <h3 className="text-sm font-semibold text-[var(--text-1)] mb-0.5">GitLab Cloud Backup & Sync</h3>
+        <p className="text-xs text-[var(--text-3)] leading-relaxed">
+          Store your preferences, custom statuses, board layouts, templates, and manual task order in a private GitLab repository.
+        </p>
+      </div>
+
+      {/* Enable / Disable Card */}
+      <Card className="p-4 space-y-4">
+        <div className="flex items-center justify-between gap-4">
+          <div className="space-y-0.5">
+            <div className="flex items-center gap-2">
+              <span className="text-xs font-semibold text-[var(--text-1)]">Automatic Cloud Backup</span>
+              <Badge className={cn('text-[10px]', enabled ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-500' : 'border-[var(--border)] bg-[var(--surface-3)] text-[var(--text-3)]')}>
+                {enabled ? 'Active' : 'Disabled'}
+              </Badge>
+            </div>
+            <p className="text-xs text-[var(--text-3)] leading-relaxed">
+              Periodically commits <code className="px-1 py-0.5 rounded bg-[var(--surface-3)] font-mono text-[11px] text-[var(--accent)]">settings.json</code> to your private GitLab repository.
+            </p>
+          </div>
+          <Switch
+            checked={enabled}
+            onCheckedChange={handleToggle}
+          />
+        </div>
+
+        {/* Repository Details */}
+        <div className="p-3 rounded-xl border border-[var(--border)] bg-[var(--surface-2)]/50 space-y-2">
+          <div className="flex items-center justify-between text-xs">
+            <span className="text-[var(--text-3)]">Backup Repository</span>
+            <span className="font-mono font-medium text-[var(--accent)] text-[11px] bg-[var(--accent-muted)]/40 px-2 py-0.5 rounded border border-[var(--accent)]/30">
+              {backupProjectName}
+            </span>
+          </div>
+          <div className="flex items-center justify-between text-xs">
+            <span className="text-[var(--text-3)]">File Path</span>
+            <span className="font-mono text-[var(--text-2)] text-[11px]">settings.json (default branch)</span>
+          </div>
+          <div className="flex items-center justify-between text-xs">
+            <span className="text-[var(--text-3)]">Dashboard Visibility</span>
+            <span className="text-emerald-500 font-medium text-[11px] flex items-center gap-1">
+              <Check className="h-3 w-3" /> Excluded from project list & dashboard
+            </span>
+          </div>
+        </div>
+      </Card>
+
+      {/* Sync Frequency Options */}
+      {enabled && (
+        <Card className="p-4 space-y-3">
+          <div>
+            <h4 className="text-xs font-semibold text-[var(--text-1)] mb-0.5">Sync Frequency</h4>
+            <p className="text-xs text-[var(--text-3)]">Choose when your settings should be backed up to GitLab.</p>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+            {[
+              { id: 'on_change', label: 'Sync on Change', desc: 'Auto-sync after edits' },
+              { id: '1h', label: 'Every 1 Hour', desc: 'Hourly scheduled backup' },
+              { id: '1d', label: 'Every Day', desc: 'Daily scheduled backup' },
+            ].map((opt) => {
+              const active = frequency === opt.id;
+              return (
+                <button
+                  key={opt.id}
+                  type="button"
+                  onClick={() => handleFrequencyChange(opt.id as any)}
+                  className={cn(
+                    'flex flex-col p-3 rounded-xl border text-left transition-all cursor-pointer',
+                    active
+                      ? 'border-[var(--accent)] bg-[var(--accent-muted)]/20 shadow-xs'
+                      : 'border-[var(--border)] bg-[var(--surface-2)]/30 hover:border-[var(--border-hover)]'
+                  )}
+                >
+                  <div className="flex items-center justify-between w-full mb-1">
+                    <span className={cn('text-xs font-semibold', active ? 'text-[var(--accent)]' : 'text-[var(--text-1)]')}>
+                      {opt.label}
+                    </span>
+                    {active && <Check className="h-3.5 w-3.5 text-[var(--accent)] shrink-0" />}
+                  </div>
+                  <span className="text-[11px] text-[var(--text-3)] leading-tight">{opt.desc}</span>
+                </button>
+              );
+            })}
+          </div>
+        </Card>
+      )}
+
+      {/* Status & Actions Card */}
+      <Card className="p-4 space-y-4">
+        <div className="flex items-center justify-between">
+          <div className="space-y-0.5">
+            <span className="text-xs font-semibold text-[var(--text-1)]">Sync Status</span>
+            <div className="flex items-center gap-2 mt-1">
+              {cloudSyncStatus === 'syncing' ? (
+                <div className="flex items-center gap-1.5 text-xs text-[var(--accent)]">
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  <span>Syncing with GitLab...</span>
+                </div>
+              ) : cloudSyncStatus === 'error' ? (
+                <div className="flex items-center gap-1.5 text-xs text-red-500">
+                  <XCircle className="h-3.5 w-3.5" />
+                  <span>{cloudSyncError || 'Failed to sync'}</span>
+                </div>
+              ) : (
+                <div className="flex items-center gap-1.5 text-xs text-[var(--text-2)]">
+                  <span className={cn('h-2 w-2 rounded-full', cloudSyncLastSynced ? 'bg-emerald-500' : 'bg-slate-400')} />
+                  <span>Last synced: {formatLastSync(cloudSyncLastSynced)}</span>
+                </div>
+              )}
+            </div>
+          </div>
+
+          <Button
+            variant="primary"
+            size="sm"
+            onClick={handleSyncNow}
+            disabled={!isAuthenticated || cloudSyncStatus === 'syncing'}
+            className="gap-1.5 cursor-pointer"
+          >
+            {cloudSyncStatus === 'syncing' ? (
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <RefreshCw className="h-3.5 w-3.5" />
+            )}
+            <span>Sync Now</span>
+          </Button>
+        </div>
+
+        {/* Restore Section */}
+        <div className="pt-3 border-t border-[var(--border)] flex items-center justify-between">
+          <div>
+            <p className="text-xs font-medium text-[var(--text-2)]">Restore from Cloud Backup</p>
+            <p className="text-[11px] text-[var(--text-3)]">Fetch settings.json from your backup repository and overwrite local configuration</p>
+          </div>
+          <Button
+            variant="secondary"
+            size="sm"
+            onClick={() => setConfirmRestoreOpen(true)}
+            disabled={!isAuthenticated || cloudSyncStatus === 'syncing'}
+            className="text-xs cursor-pointer"
+          >
+            Restore Backup
+          </Button>
+        </div>
+      </Card>
+
+      {/* Confirmation Modal for Restore */}
+      <Modal open={confirmRestoreOpen} onClose={() => setConfirmRestoreOpen(false)} size="sm">
+        <div className="p-5 space-y-4">
+          <div className="flex items-center gap-3">
+            <div className="h-9 w-9 rounded-xl bg-amber-500/10 border border-amber-500/20 flex items-center justify-center text-amber-500 shrink-0">
+              <RotateCcw className="h-4 w-4" />
+            </div>
+            <div>
+              <h4 className="text-sm font-semibold text-[var(--text-1)]">Restore from Cloud?</h4>
+              <p className="text-xs text-[var(--text-3)]">This will overwrite local settings with data from GitLab.</p>
+            </div>
+          </div>
+
+          <div className="p-3 rounded-lg border border-[var(--border)] bg-[var(--surface-2)] text-xs text-[var(--text-2)] leading-relaxed">
+            Your custom statuses, templates, global labels, and view configurations will be restored from <code className="font-mono text-[var(--accent)] font-semibold">{backupProjectName}</code>.
+          </div>
+
+          <div className="flex justify-end gap-2 pt-2">
+            <Button variant="ghost" size="sm" onClick={() => setConfirmRestoreOpen(false)}>
+              Cancel
+            </Button>
+            <Button variant="primary" size="sm" onClick={handleRestore}>
+              Confirm & Restore
+            </Button>
+          </div>
+        </div>
+      </Modal>
+    </div>
+  );
+}
+
 // ── Main Settings Component ────────────────────────────────────────────────────
 interface SectionItem {
   id: string;
@@ -1943,17 +2210,40 @@ interface SectionItem {
   component: React.ComponentType;
 }
 
-const SECTIONS: SectionItem[] = [
-  { id: 'connection', label: 'Connection',       icon: Link,        component: ConnectionSettings },
-  { id: 'appearance', label: 'Appearance & Clock', icon: Palette,   component: AppearanceSettings },
-  { id: 'projects',   label: 'Projects',         icon: FolderGit2,  component: ProjectSettings },
-  { id: 'board',      label: 'Board Statuses',   icon: LayoutGrid,  component: BoardStatusesSettings },
-  { id: 'labels',     label: 'Global Labels',    icon: Tag,         component: GlobalLabelsSettings },
-  { id: 'templates',  label: 'Templates',        icon: FileText,    component: TemplatesSettings },
-  { id: 'tasks',      label: 'Task Defaults',    icon: ListTodo,    component: TaskSettings },
-  { id: 'updates',    label: 'Version & Updates', icon: Download,    component: UpdatesSettings },
-  { id: 'storage',    label: 'Storage & Cache',  icon: Database,    component: StorageSettings },
+interface SectionGroup {
+  title: string;
+  items: SectionItem[];
+}
+
+const SECTION_GROUPS: SectionGroup[] = [
+  {
+    title: 'GENERAL',
+    items: [
+      { id: 'connection', label: 'Connection',         icon: Link,       component: ConnectionSettings },
+      { id: 'sync',       label: 'Cloud Backup & Sync', icon: RefreshCw, component: CloudSyncSettings },
+      { id: 'appearance', label: 'Appearance & Clock', icon: Palette,   component: AppearanceSettings },
+    ],
+  },
+  {
+    title: 'WORKSPACE',
+    items: [
+      { id: 'projects',   label: 'Projects',         icon: FolderGit2,  component: ProjectSettings },
+      { id: 'board',      label: 'Board Statuses',   icon: LayoutGrid,  component: BoardStatusesSettings },
+      { id: 'labels',     label: 'Global Labels',    icon: Tag,         component: GlobalLabelsSettings },
+      { id: 'templates',  label: 'Templates',        icon: FileText,    component: TemplatesSettings },
+      { id: 'tasks',      label: 'Task Defaults',    icon: ListTodo,    component: TaskSettings },
+    ],
+  },
+  {
+    title: 'SYSTEM',
+    items: [
+      { id: 'updates',    label: 'Version & Updates', icon: Download,    component: UpdatesSettings },
+      { id: 'storage',    label: 'Storage & Cache',  icon: Database,    component: StorageSettings },
+    ],
+  },
 ];
+
+const ALL_SECTIONS = SECTION_GROUPS.flatMap((g) => g.items);
 
 export interface SettingsModalProps {
   open: boolean;
@@ -1963,7 +2253,7 @@ export interface SettingsModalProps {
 
 export function SettingsModal({ open, onClose, defaultSection = 'connection' }: SettingsModalProps) {
   const [activeSection, setActiveSection] = useState(defaultSection);
-  const ActiveComponent = SECTIONS.find((s) => s.id === activeSection)?.component || ConnectionSettings;
+  const ActiveComponent = ALL_SECTIONS.find((s) => s.id === activeSection)?.component || ConnectionSettings;
 
   if (!open) return null;
 
@@ -1977,7 +2267,7 @@ export function SettingsModal({ open, onClose, defaultSection = 'connection' }: 
           </div>
           <div>
             <h2 className="text-sm font-semibold text-[var(--text-1)]">Settings & Preferences</h2>
-            <p className="text-[11px] text-[var(--text-3)]">Configure GitLab connection, board statuses, projects, and appearance</p>
+            <p className="text-[11px] text-[var(--text-3)]">Configure GitLab connection, cloud backup, board statuses, projects, and appearance</p>
           </div>
         </div>
         <button
@@ -1992,27 +2282,34 @@ export function SettingsModal({ open, onClose, defaultSection = 'connection' }: 
 
       {/* ── Two-Pane Layout ── */}
       <div className="flex flex-1 min-h-0 overflow-hidden">
-        {/* Left Sidebar */}
+        {/* Left Sidebar with Group Titles */}
         <aside className="w-56 shrink-0 border-r border-[var(--border)] bg-[var(--surface-2)]/30 flex flex-col justify-between p-2">
-          <nav className="space-y-0.5 overflow-y-auto">
-            {SECTIONS.map((s) => {
-              const active = activeSection === s.id;
-              return (
-                <button
-                  key={s.id}
-                  onClick={() => setActiveSection(s.id)}
-                  className={cn(
-                    'w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs transition-all text-left cursor-pointer',
-                    active
-                      ? 'bg-[var(--accent-muted)] text-[var(--accent)] font-semibold shadow-xs border border-[var(--accent)]/30'
-                      : 'text-[var(--text-2)] hover:bg-[var(--surface-2)] hover:text-[var(--text-1)]'
-                  )}
-                >
-                  <s.icon className="h-3.5 w-3.5 shrink-0" />
-                  <span>{s.label}</span>
-                </button>
-              );
-            })}
+          <nav className="space-y-3 overflow-y-auto">
+            {SECTION_GROUPS.map((group) => (
+              <div key={group.title} className="space-y-0.5">
+                <div className="px-3 py-1 text-[10px] font-bold uppercase tracking-wider text-[var(--text-3)] select-none">
+                  {group.title}
+                </div>
+                {group.items.map((s) => {
+                  const active = activeSection === s.id;
+                  return (
+                    <button
+                      key={s.id}
+                      onClick={() => setActiveSection(s.id)}
+                      className={cn(
+                        'w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs transition-all text-left cursor-pointer',
+                        active
+                          ? 'bg-[var(--accent-muted)] text-[var(--accent)] font-semibold shadow-xs border border-[var(--accent)]/30'
+                          : 'text-[var(--text-2)] hover:bg-[var(--surface-2)] hover:text-[var(--text-1)]'
+                      )}
+                    >
+                      <s.icon className="h-3.5 w-3.5 shrink-0" />
+                      <span>{s.label}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            ))}
           </nav>
 
           <div className="pt-2 border-t border-[var(--border)] px-2 flex items-center justify-between text-xs text-[var(--text-3)]">
@@ -2048,11 +2345,11 @@ export default function Settings(props: SettingsProps) {
   }
 
   const [activeSection, setActiveSection] = useState('connection');
-  const ActiveComponent = SECTIONS.find((s) => s.id === activeSection)?.component || ConnectionSettings;
+  const ActiveComponent = ALL_SECTIONS.find((s) => s.id === activeSection)?.component || ConnectionSettings;
 
   return (
     <div className="flex h-full bg-[var(--bg)] theme-transition">
-      {/* ── Sidebar ── */}
+      {/* ── Sidebar with Group Titles ── */}
       <aside className="w-56 shrink-0 border-r border-[var(--border)] bg-[var(--surface)] flex flex-col">
         <div className="px-4 py-4 border-b border-[var(--border)]">
           <div className="flex items-center gap-2">
@@ -2062,25 +2359,32 @@ export default function Settings(props: SettingsProps) {
             <span className="text-sm font-semibold text-[var(--text-1)]">Settings</span>
           </div>
         </div>
-        <nav className="flex-1 p-2 space-y-0.5">
-          {SECTIONS.map((s) => {
-            const active = activeSection === s.id;
-            return (
-              <button
-                key={s.id}
-                onClick={() => setActiveSection(s.id)}
-                className={cn(
-                  'w-full flex items-center gap-2.5 px-3 py-2.5 rounded-lg text-sm transition-all text-left cursor-pointer',
-                  active
-                    ? 'bg-[var(--accent-muted)] text-[var(--accent)] font-medium shadow-xs'
-                    : 'text-[var(--text-2)] hover:bg-[var(--surface-2)] hover:text-[var(--text-1)]'
-                )}
-              >
-                <s.icon className="h-4 w-4 shrink-0" />
-                {s.label}
-              </button>
-            );
-          })}
+        <nav className="flex-1 p-2 space-y-3 overflow-y-auto">
+          {SECTION_GROUPS.map((group) => (
+            <div key={group.title} className="space-y-0.5">
+              <div className="px-3 py-1 text-[10px] font-bold uppercase tracking-wider text-[var(--text-3)] select-none">
+                {group.title}
+              </div>
+              {group.items.map((s) => {
+                const active = activeSection === s.id;
+                return (
+                  <button
+                    key={s.id}
+                    onClick={() => setActiveSection(s.id)}
+                    className={cn(
+                      'w-full flex items-center gap-2.5 px-3 py-2.5 rounded-lg text-sm transition-all text-left cursor-pointer',
+                      active
+                        ? 'bg-[var(--accent-muted)] text-[var(--accent)] font-medium shadow-xs'
+                        : 'text-[var(--text-2)] hover:bg-[var(--surface-2)] hover:text-[var(--text-1)]'
+                    )}
+                  >
+                    <s.icon className="h-4 w-4 shrink-0" />
+                    {s.label}
+                  </button>
+                );
+              })}
+            </div>
+          ))}
         </nav>
         <div className="p-3 border-t border-[var(--border)] space-y-1">
           <div className="flex items-center justify-between px-2">
