@@ -797,17 +797,31 @@ const useStore = create<StoreState>((set, get) => ({
   latestVersion: localStore.getLatestVersion(),
   updateAvailable: false,
 
-  async checkForUpdate(): Promise<void> {
+  async checkForUpdate(options: { force?: boolean } = {}): Promise<void> {
     const { appSettings } = get();
     const repo = appSettings.githubRepo || 'Shariar-Hasan/gitlab-task-management';
     const lastCheck = localStore.getLastUpdateCheck();
-    const hours = appSettings.updateCheckHours || 24;
+    const hours = appSettings.updateCheckHours || 4;
     const msThreshold = hours * 60 * 60 * 1000;
+    const currentVersion = '1.1.0'; // from manifest
 
-    // Throttle checks
-    if (lastCheck && Date.now() - lastCheck < msThreshold) {
-      // Check if already known update available
-      const currentVersion = '1.1.0'; // from manifest
+    // 1. Check if background service worker stored an update result
+    if (typeof chrome !== 'undefined' && chrome?.storage?.local) {
+      try {
+        const stored = await chrome.storage.local.get('extension_update_info');
+        if (stored?.extension_update_info) {
+          const info = stored.extension_update_info;
+          set({
+            latestVersion: info.latestVersion,
+            updateAvailable: Boolean(info.updateAvailable),
+          });
+          if (!options.force) return;
+        }
+      } catch {}
+    }
+
+    // 2. Throttle checks unless forced
+    if (!options.force && lastCheck && Date.now() - lastCheck < msThreshold) {
       const latest = localStore.getLatestVersion();
       if (latest) {
         const updateAvailable = isNewerVersion(latest, currentVersion);
@@ -817,11 +831,12 @@ const useStore = create<StoreState>((set, get) => ({
     }
 
     try {
-      const res = await fetch(`https://api.github.com/repos/${repo}/releases/latest`);
+      const res = await fetch(`https://api.github.com/repos/${repo}/releases/latest`, {
+        headers: { Accept: 'application/vnd.github.v3+json' },
+      });
       if (!res.ok) return;
       const data = await res.json();
       const tag = (data.tag_name || '').replace(/^v/, '');
-      const currentVersion = '1.1.0';
       const updateAvailable = isNewerVersion(tag, currentVersion);
       localStore.setLatestVersion(tag);
       localStore.setLastUpdateCheck();
@@ -841,33 +856,39 @@ const useStore = create<StoreState>((set, get) => ({
     localStore.updateSettings({ viewMode: v });
   },
 
-  globalFilter: '',
+  globalFilter: (localStore.getSettings()?.persistFilters !== false ? localStore.getActiveFilters()?.globalFilter : '') || '',
   setGlobalFilter: (v: string) => {
     set({ globalFilter: v });
     get()._persistFilters({ globalFilter: v });
   },
 
   // Multi-select filters
-  filterProjects: localStore.getSettings()?.defaultFilterProjects || [],
+  filterProjects: (localStore.getSettings()?.persistFilters !== false && localStore.getActiveFilters()?.filterProjects?.length)
+    ? localStore.getActiveFilters().filterProjects
+    : (localStore.getSettings()?.defaultFilterProjects || []),
   setFilterProjects: (arr: string[]) => {
     set({ filterProjects: arr || [] });
     get()._persistFilters({ filterProjects: arr || [] });
   },
 
-  filterStatus: Array.isArray(localStore.getSettings()?.defaultFilterStatus) ? localStore.getSettings().defaultFilterStatus : [],
+  filterStatus: (localStore.getSettings()?.persistFilters !== false && localStore.getActiveFilters()?.filterStatus?.length)
+    ? localStore.getActiveFilters().filterStatus
+    : (Array.isArray(localStore.getSettings()?.defaultFilterStatus) ? localStore.getSettings().defaultFilterStatus : []),
   setFilterStatus: (v: string | string[]) => {
     const val = Array.isArray(v) ? v : (v && v !== 'all' ? [v] : []);
     set({ filterStatus: val });
     get()._persistFilters({ filterStatus: val });
   },
 
-  filterLabels: localStore.getSettings()?.defaultFilterLabels || [],
+  filterLabels: (localStore.getSettings()?.persistFilters !== false && localStore.getActiveFilters()?.filterLabels?.length)
+    ? localStore.getActiveFilters().filterLabels
+    : (localStore.getSettings()?.defaultFilterLabels || []),
   setFilterLabels: (arr: string[]) => {
     set({ filterLabels: arr || [] });
     get()._persistFilters({ filterLabels: arr || [] });
   },
 
-  assignedToMe: false,
+  assignedToMe: (localStore.getSettings()?.persistFilters !== false && Boolean(localStore.getActiveFilters()?.assignedToMe)) || false,
   setAssignedToMe: (v: boolean) => {
     set({ assignedToMe: v });
     get()._persistFilters({ assignedToMe: v });

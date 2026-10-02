@@ -281,12 +281,12 @@ export function getVisibleGlobalLabels(
 
   const visible: GlobalLabel[] = [];
   for (const raw of issueLabels) {
-    const rawName = (typeof raw === 'string' ? raw : raw?.name || raw?.title || '')?.trim();
+    const rawName = (typeof raw === 'string' ? raw : (raw?.name || raw?.title || ''))?.trim();
     if (!rawName) continue;
     const match = globalLabels.find(
-      (gl) => gl.name.toLowerCase() === rawName.toLowerCase()
+      (gl) => (gl?.name || '').toLowerCase() === rawName.toLowerCase()
     );
-    if (match && !visible.some((v) => v.name.toLowerCase() === match.name.toLowerCase())) {
+    if (match && !visible.some((v) => (v?.name || '').toLowerCase() === (match.name || '').toLowerCase())) {
       visible.push(match);
     }
   }

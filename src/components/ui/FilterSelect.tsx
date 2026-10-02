@@ -327,12 +327,14 @@ export function FilterSelect({
                             />
                           ) : null}
 
-                          <span className="truncate">{opt.label}</span>
-                          {opt.subtitle && (
-                            <span className="text-[10px] text-[var(--text-3)] truncate ml-1 max-w-[100px]">
-                              {opt.subtitle}
-                            </span>
-                          )}
+                          <div className="flex flex-col min-w-0 text-left">
+                            <span className="truncate leading-tight font-medium">{opt.label}</span>
+                            {opt.subtitle && (
+                              <span className="text-[10px] text-[var(--text-3)] truncate leading-tight mt-0.5 max-w-[200px]">
+                                {opt.subtitle}
+                              </span>
+                            )}
+                          </div>
                         </span>
                         {!isMulti && active && (
                           <Check className="h-3.5 w-3.5 text-[var(--accent)] shrink-0" />

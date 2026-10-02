@@ -10,7 +10,7 @@ import {
   Edit2, Trash2, Check, X, ChevronLeft, ChevronRight,
   MoreHorizontal, CheckCircle2, Circle, Pin, PinOff,
   Tag, UserPlus, Calendar, Search, Plus, Loader2,
-  Users, CheckSquare,
+  Users, CheckSquare, Copy, FileText, Link as LinkIcon,
 } from 'lucide-react';
 import { Button, Badge, Avatar, Spinner } from './ui/index';
 import { DropdownMenu, DropdownItem, DropdownSeparator, useConfirm } from './ui/overlay';
@@ -44,18 +44,23 @@ function FloatingPopover({ anchorRef, open, onClose, children, width = 240 }: Fl
     const spaceBelow = window.innerHeight - r.bottom;
     const spaceAbove = r.top;
     let top = r.bottom + 6;
-    if (spaceBelow < 280 && spaceAbove > 280) top = r.top - 280 - 6;
+    if (spaceBelow < 280 && spaceAbove > 200) {
+      top = Math.max(8, r.top - 280 - 6);
+    } else if (spaceBelow < 200 && spaceAbove <= 200) {
+      top = Math.max(8, window.innerHeight - 300);
+    }
     let left = r.left;
     if (left + width > window.innerWidth - 8) left = window.innerWidth - width - 8;
+    if (left < 8) left = 8;
     setPos({ top, left });
   }, [open, anchorRef, width]);
 
   if (!open) return null;
   return createPortal(
     <>
-      <div className="fixed inset-0 z-40" onClick={onClose} />
+      <div className="fixed inset-0 z-[9990]" onClick={onClose} />
       <div
-        className="fixed z-50 animate-fade-in rounded-xl border border-[var(--border)] bg-[var(--surface)] shadow-[var(--shadow-modal)] overflow-hidden"
+        className="fixed z-[9995] animate-fade-in rounded-xl border border-[var(--border)] bg-[var(--surface)] shadow-[var(--shadow-modal)] overflow-hidden"
         style={{ top: pos.top, left: pos.left, width }}
       >
         {children}
@@ -250,7 +255,7 @@ function InlineAssignee({ issue, onUpdate }: { issue: any; onUpdate: (payload: a
     const newAssignees = isAssigned(member)
       ? assignees.filter((a: any) => a.id !== member.id)
       : [...assignees, member];
-    await onUpdate({ assignee_ids: newIds, assignees: newAssignees });
+    await onUpdate({ assignee_ids: newIds.length > 0 ? newIds : [0], assignees: newAssignees });
   };
 
   const assignMe = async () => {
@@ -374,8 +379,8 @@ function InlineLabel({ issue }: { issue: any }) {
 
   const handleApplyAndClose = async () => {
     setOpen(false);
-    const curKeys   = visibleLabels.map((l: any) => l.name.toLowerCase()).sort().join(',');
-    const draftKeys = draftLabels.map((l: any) => l.name.toLowerCase()).sort().join(',');
+    const curKeys   = visibleLabels.map((l: any) => (l?.name || '').toLowerCase()).sort().join(',');
+    const draftKeys = draftLabels.map((l: any) => (l?.name || '').toLowerCase()).sort().join(',');
     if (curKeys !== draftKeys) {
       setSaving(true);
       try {
@@ -390,9 +395,10 @@ function InlineLabel({ issue }: { issue: any }) {
 
   const toggleDraft = (label: any) => {
     setDraftLabels((prev) => {
-      const exists = prev.some((l) => l.name.toLowerCase() === label.name.toLowerCase());
+      const targetName = (label?.name || '').toLowerCase();
+      const exists = prev.some((l) => (l?.name || '').toLowerCase() === targetName);
       if (exists) {
-        return prev.filter((l) => l.name.toLowerCase() !== label.name.toLowerCase());
+        return prev.filter((l) => (l?.name || '').toLowerCase() !== targetName);
       } else {
         return [...prev, label];
       }
@@ -413,9 +419,10 @@ function InlineLabel({ issue }: { issue: any }) {
     }
   };
 
-  const filtered   = globalLabels.filter((l) => l.name.toLowerCase().includes(search.toLowerCase()));
-  const exact      = globalLabels.find((l) => l.name.toLowerCase() === search.trim().toLowerCase());
-  const isSelected = (l: any) => draftLabels.some((dl) => dl.name.toLowerCase() === l.name.toLowerCase());
+  const searchQ    = (search || '').toLowerCase();
+  const filtered   = (globalLabels || []).filter((l) => (l?.name || '').toLowerCase().includes(searchQ));
+  const exact      = (globalLabels || []).find((l) => (l?.name || '').toLowerCase() === (search || '').trim().toLowerCase());
+  const isSelected = (l: any) => draftLabels.some((dl) => (dl?.name || '').toLowerCase() === (l?.name || '').toLowerCase());
 
   return (
     <>
@@ -753,21 +760,67 @@ interface BulkActionBarProps {
   onCloseSelected: () => void;
   onAssignToMe: () => void;
   onOpenSelected: () => void;
+  projectMap?: Record<string, any>;
+  customStatuses?: Record<string, string>;
 }
 
-function BulkActionBar({ selectedRows, onClear, onCloseSelected, onAssignToMe, onOpenSelected }: BulkActionBarProps) {
+function BulkActionBar({
+  selectedRows, onClear, onCloseSelected, onAssignToMe, onOpenSelected,
+  projectMap, customStatuses,
+}: BulkActionBarProps) {
   const count = selectedRows.length;
   const openCount   = selectedRows.filter((r) => r.original.state === 'opened').length;
   const closedCount = selectedRows.filter((r) => r.original.state === 'closed').length;
+  const toast = useToast();
+
+  const handleCopy = (type: 'titles' | 'urls' | 'dates' | 'statuses' | 'labels' | 'markdown' | 'summary') => {
+    const issues = selectedRows.map((r) => r.original);
+    let text = '';
+
+    if (type === 'titles') {
+      text = issues.map((i) => i.title).join('\n');
+    } else if (type === 'urls') {
+      text = issues.map((i) => i.web_url || '').filter(Boolean).join('\n');
+    } else if (type === 'dates') {
+      text = issues.map((i) => `${i.title}: ${i.due_date ? `Due ${i.due_date}` : 'No due date'}`).join('\n');
+    } else if (type === 'statuses') {
+      text = issues.map((i) => `${i.title}: ${getEffectiveStatus(i, customStatuses || {})}`).join('\n');
+    } else if (type === 'labels') {
+      text = issues.map((i) => {
+        const lbls = (i.labels || []).map((l: any) => typeof l === 'string' ? l : l?.name).filter(Boolean);
+        return `${i.title}: ${lbls.join(', ') || 'No labels'}`;
+      }).join('\n');
+    } else if (type === 'markdown') {
+      text = issues.map((i) => `- [${i.title}](${i.web_url || '#'})`).join('\n');
+    } else if (type === 'summary') {
+      text = issues.map((i, idx) => {
+        const proj = projectMap?.[i.project_id]?.name || `Project #${i.project_id}`;
+        const st = getEffectiveStatus(i, customStatuses || {});
+        const lbls = (i.labels || []).map((l: any) => typeof l === 'string' ? l : l?.name).filter(Boolean).join(', ');
+        return `${idx + 1}. [${proj}] ${i.title}\n   Status: ${st} | Due: ${i.due_date || 'None'} | Labels: ${lbls || 'None'}\n   Link: ${i.web_url || 'N/A'}`;
+      }).join('\n\n');
+    }
+
+    if (!text) {
+      toast({ type: 'warning', message: 'No data to copy' });
+      return;
+    }
+
+    navigator.clipboard.writeText(text).then(() => {
+      toast({ type: 'success', message: `✓ Copied ${issues.length} task ${type} to clipboard` });
+    }).catch(() => {
+      toast({ type: 'error', message: 'Failed to copy to clipboard' });
+    });
+  };
 
   return (
-    <div className="flex items-center gap-3 px-4 py-2.5 bg-[var(--accent-muted)] border-b border-[var(--accent)]/20 animate-fade-in">
+    <div className="flex items-center gap-3 px-4 py-2.5 bg-[var(--accent-muted)] border-b border-[var(--accent)]/20 animate-fade-in flex-wrap">
       <div className="flex items-center gap-2 shrink-0">
         <CheckSquare className="h-4 w-4 text-[var(--accent)]" />
         <span className="text-sm font-semibold text-[var(--accent)]">{count} selected</span>
       </div>
       <div className="h-4 w-px bg-[var(--accent)]/20" />
-      <div className="flex items-center gap-2 flex-1">
+      <div className="flex items-center gap-2 flex-1 flex-wrap">
         {openCount > 0 && (
           <Button variant="secondary" size="sm" onClick={onCloseSelected}>
             <CheckCircle2 className="h-3.5 w-3.5" />
@@ -784,6 +837,27 @@ function BulkActionBar({ selectedRows, onClear, onCloseSelected, onAssignToMe, o
           <Users className="h-3.5 w-3.5" />
           Assign to me
         </Button>
+
+        {/* Copy Dropdown */}
+        <DropdownMenu
+          trigger={
+            <Button variant="secondary" size="sm" className="gap-1.5">
+              <Copy className="h-3.5 w-3.5" />
+              Copy
+            </Button>
+          }
+          align="left"
+        >
+          <DropdownItem icon={Copy} onClick={() => handleCopy('titles')}>Copy Titles</DropdownItem>
+          <DropdownItem icon={LinkIcon} onClick={() => handleCopy('urls')}>Copy URLs</DropdownItem>
+          <DropdownItem icon={FileText} onClick={() => handleCopy('markdown')}>Copy as Markdown Links</DropdownItem>
+          <DropdownSeparator />
+          <DropdownItem icon={Calendar} onClick={() => handleCopy('dates')}>Copy Due Dates</DropdownItem>
+          <DropdownItem icon={Circle} onClick={() => handleCopy('statuses')}>Copy Statuses</DropdownItem>
+          <DropdownItem icon={Tag} onClick={() => handleCopy('labels')}>Copy Labels</DropdownItem>
+          <DropdownSeparator />
+          <DropdownItem icon={FileText} onClick={() => handleCopy('summary')}>Copy Full Summary (All)</DropdownItem>
+        </DropdownMenu>
       </div>
       <Button variant="ghost" size="icon-sm" onClick={onClear} title="Clear selection">
         <X className="h-4 w-4" />
@@ -801,8 +875,8 @@ export interface TaskTableProps {
 // ─────────────────────────────────────────────────────────────────────────────
 export default function TaskTable({ onEdit }: TaskTableProps) {
   const {
-    issues, issuesLoading, projects,
-    globalFilter, filterProjects, filterStatus, filterLabels,
+    issues, issuesLoading, projects, projectOverrides,
+    globalFilter, filterProjects, filterStatus, filterLabels, assignedToMe, currentUser,
     updateTask, deleteTask, toggleTaskState,
     pinnedKeys, togglePin,
     bulkCloseIssues, bulkAssignToMe,
@@ -822,6 +896,13 @@ export default function TaskTable({ onEdit }: TaskTableProps) {
   // Apply filters + default sort: pinned tasks first, then created_at descending
   const filteredIssues = useMemo(() => {
     let data = issues;
+
+    // Filter by enabled projects only
+    data = data.filter((i) => {
+      const ov = projectOverrides?.[String(i.project_id)];
+      return ov?.enabled !== false;
+    });
+
     // Multi-select projects
     if (filterProjects && filterProjects.length > 0) {
       const projSet = new Set(filterProjects.map(String));
@@ -840,7 +921,14 @@ export default function TaskTable({ onEdit }: TaskTableProps) {
       const labelSet = new Set(filterLabels.map((l) => l.toLowerCase()));
       data = data.filter((i) => {
         const issueLabels = getVisibleGlobalLabels(i.labels, globalLabels);
-        return issueLabels.some((l) => labelSet.has(l.name.toLowerCase()));
+        return issueLabels.some((l) => labelSet.has((l?.name || '').toLowerCase()));
+      });
+    }
+    // Assigned to me filter
+    if (assignedToMe && currentUser) {
+      data = data.filter((i) => {
+        const assignees = i.assignees || (i.assignee ? [i.assignee] : []);
+        return assignees.some((a: any) => a.id === currentUser.id);
       });
     }
     if (globalFilter) {
@@ -848,7 +936,7 @@ export default function TaskTable({ onEdit }: TaskTableProps) {
       data = data.filter((i) =>
         i.title?.toLowerCase().includes(q) ||
         projectMap[i.project_id]?.name?.toLowerCase().includes(q) ||
-        getVisibleGlobalLabels(i.labels, globalLabels).some((l) => l.name.toLowerCase().includes(q)) ||
+        getVisibleGlobalLabels(i.labels, globalLabels).some((l) => (l?.name || '').toLowerCase().includes(q)) ||
         i.assignees?.some((a: any) => (a.name || a.username)?.toLowerCase().includes(q))
       );
     }
@@ -903,23 +991,45 @@ export default function TaskTable({ onEdit }: TaskTableProps) {
   }, [toggleTaskState, toast]);
 
   const columns: ColumnDef<any>[] = useMemo(() => [
-    // ── Checkbox ──
+    // ── Checkbox & Pin ──
     {
-      id: 'select', size: 40, enableSorting: false,
+      id: 'select', size: 68, enableSorting: false,
       header: ({ table }) => (
-        <input type="checkbox" className="h-4 w-4 rounded accent-[var(--accent)] cursor-pointer"
-          checked={table.getIsAllPageRowsSelected()}
-          ref={(el) => { if (el) el.indeterminate = table.getIsSomePageRowsSelected(); }}
-          onChange={table.getToggleAllPageRowsSelectedHandler()}
-        />
+        <div className="flex items-center gap-1.5">
+          <input type="checkbox" className="h-4 w-4 rounded accent-[var(--accent)] cursor-pointer"
+            checked={table.getIsAllPageRowsSelected()}
+            ref={(el) => { if (el) el.indeterminate = table.getIsSomePageRowsSelected(); }}
+            onChange={table.getToggleAllPageRowsSelectedHandler()}
+          />
+        </div>
       ),
-      cell: ({ row }) => (
-        <input type="checkbox" className="h-4 w-4 rounded accent-[var(--accent)] cursor-pointer"
-          checked={row.getIsSelected()}
-          onChange={row.getToggleSelectedHandler()}
-          onClick={(e) => e.stopPropagation()}
-        />
-      ),
+      cell: ({ row }) => {
+        const isPinned = pinnedKeys.has(`${row.original.project_id}_${row.original.iid}`);
+        return (
+          <div className="flex items-center gap-1.5">
+            <input type="checkbox" className="h-4 w-4 rounded accent-[var(--accent)] cursor-pointer"
+              checked={row.getIsSelected()}
+              onChange={row.getToggleSelectedHandler()}
+              onClick={(e) => e.stopPropagation()}
+            />
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                togglePin(row.original.project_id, row.original.iid);
+              }}
+              title={isPinned ? 'Unpin task (return to normal sort)' : 'Pin task to top'}
+              className="p-1 rounded hover:bg-[var(--surface-3)] transition-transform duration-200 active:scale-75 cursor-pointer shrink-0"
+            >
+              {isPinned ? (
+                <Pin className="h-3.5 w-3.5 text-[var(--accent)] animate-pin-pop" fill="currentColor" />
+              ) : (
+                <Pin className="h-3.5 w-3.5 text-[var(--text-3)] opacity-0 group-hover:opacity-40 hover:!opacity-100 hover:text-[var(--accent)] transition-all duration-200 hover:rotate-12" />
+              )}
+            </button>
+          </div>
+        );
+      },
     },
     // ── Project ──
     {
@@ -929,25 +1039,9 @@ export default function TaskTable({ onEdit }: TaskTableProps) {
       cell: ({ getValue, row }) => {
         const proj = projectMap[row.original.project_id];
         const hue  = (row.original.project_id * 137) % 360;
-        const isPinned = pinnedKeys.has(`${row.original.project_id}_${row.original.iid}`);
         const val = getValue() as string;
         return (
           <div className="flex items-center gap-1.5 min-w-0">
-            <button
-              type="button"
-              onClick={(e) => {
-                e.stopPropagation();
-                togglePin(row.original.project_id, row.original.iid);
-              }}
-              title={isPinned ? 'Unpin task (return to normal sort)' : 'Pin task to top'}
-              className="p-1 -ml-1 rounded hover:bg-[var(--surface-3)] transition-transform duration-200 active:scale-75 cursor-pointer shrink-0"
-            >
-              {isPinned ? (
-                <Pin className="h-3.5 w-3.5 text-[var(--accent)] animate-pin-pop" fill="currentColor" />
-              ) : (
-                <Pin className="h-3.5 w-3.5 text-[var(--text-3)] opacity-0 group-hover:opacity-40 hover:!opacity-100 hover:text-[var(--accent)] transition-all duration-200 hover:rotate-12" />
-              )}
-            </button>
             {proj?.avatar_url ? (
               <img
                 src={proj.avatar_url}
@@ -1142,6 +1236,8 @@ export default function TaskTable({ onEdit }: TaskTableProps) {
           onCloseSelected={handleBulkClose}
           onOpenSelected={handleBulkOpen}
           onAssignToMe={handleBulkAssign}
+          projectMap={projectMap}
+          customStatuses={customStatuses}
         />
       )}
 

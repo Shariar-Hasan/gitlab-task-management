@@ -92,22 +92,27 @@ export default function Dashboard({ onSettings }: DashboardProps) {
   };
 
   // Aggregated stats
+  // Aggregated stats (enabled projects only)
   const stats = useMemo(() => {
-    const open = issues.filter((i) => {
+    const activeIssues = issues.filter((i) => {
+      const override = projectOverrides?.[String(i.project_id)];
+      return override?.enabled !== false;
+    });
+    const open = activeIssues.filter((i) => {
       const s = getEffectiveStatus(i, customStatuses);
       return s !== 'close';
     }).length;
-    const closed = issues.filter((i) => {
+    const closed = activeIssues.filter((i) => {
       const s = getEffectiveStatus(i, customStatuses);
       return s === 'close';
     }).length;
-    const overdue = issues.filter((i) => {
+    const overdue = activeIssues.filter((i) => {
       const s = getEffectiveStatus(i, customStatuses);
       if (!i.due_date || s === 'close') return false;
       return new Date(i.due_date) < new Date();
     }).length;
-    return { total: issues.length, open, closed, overdue };
-  }, [issues, customStatuses]);
+    return { total: activeIssues.length, open, closed, overdue };
+  }, [issues, customStatuses, projectOverrides]);
 
   // Only enabled projects for filter
   const enabledProjects = useMemo(() => {
@@ -224,26 +229,6 @@ export default function Dashboard({ onSettings }: DashboardProps) {
             </div>
           </div>
 
-          {/* Search */}
-          <div className="relative flex-1 max-w-md">
-            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-[var(--text-3)]" />
-            <Input
-              id="global-search"
-              value={globalFilter}
-              onChange={(e) => setGlobalFilter(e.target.value)}
-              placeholder="Search tasks, projects, labels..."
-              className="pl-8 h-8 text-xs pr-8"
-            />
-            {globalFilter && (
-              <button
-                onClick={() => setGlobalFilter('')}
-                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[var(--text-3)] hover:text-[var(--text-2)] transition-colors cursor-pointer"
-              >
-                <X className="h-3.5 w-3.5" />
-              </button>
-            )}
-          </div>
-
           {/* Right actions */}
           <div className="flex items-center gap-1.5 ml-auto shrink-0">
             <CacheStatus lastFetchedAt={lastFetchedAt} />
@@ -309,6 +294,26 @@ export default function Dashboard({ onSettings }: DashboardProps) {
         <div className="flex items-center gap-1 text-[var(--text-3)] text-xs mr-1 shrink-0">
           <Filter className="h-3.5 w-3.5" />
           <span className="hidden sm:inline font-medium text-[11px] uppercase tracking-wider">Filters</span>
+        </div>
+
+        {/* Search in Filter Section */}
+        <div className="relative min-w-[180px] max-w-xs flex-1">
+          <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-[var(--text-3)]" />
+          <Input
+            id="filter-search"
+            value={globalFilter}
+            onChange={(e) => setGlobalFilter(e.target.value)}
+            placeholder="Search tasks, labels..."
+            className="pl-8 h-8 text-xs pr-7 bg-[var(--surface)] border-[var(--border)]"
+          />
+          {globalFilter && (
+            <button
+              onClick={() => setGlobalFilter('')}
+              className="absolute right-2 top-1/2 -translate-y-1/2 text-[var(--text-3)] hover:text-[var(--text-2)] transition-colors cursor-pointer"
+            >
+              <X className="h-3.5 w-3.5" />
+            </button>
+          )}
         </div>
 
         {/* Project Select (Multi-Select) */}

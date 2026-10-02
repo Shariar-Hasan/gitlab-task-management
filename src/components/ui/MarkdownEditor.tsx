@@ -4,7 +4,7 @@ import {
   Bold, Italic, Strikethrough, Heading3, Quote,
   Code, FileCode, List, ListOrdered, CheckSquare,
   Link2, Image as ImageIcon, Eye, Edit3, Loader2,
-  Paperclip,
+  Paperclip, Columns,
 } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import useStore from '../../store/useStore';
@@ -33,7 +33,7 @@ export default function MarkdownEditor({
   rows = 5,
   className,
 }: MarkdownEditorProps) {
-  const [mode, setMode] = useState<'write' | 'preview'>('write');
+  const [mode, setMode] = useState<'write' | 'split' | 'preview'>('split');
   const [uploading, setUploading] = useState(false);
   const [dragOver, setDragOver] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -209,7 +209,7 @@ export default function MarkdownEditor({
             type="button"
             onClick={() => setMode('write')}
             className={cn(
-              'flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium transition-all cursor-pointer',
+              'flex items-center gap-1 px-2 py-1 rounded-md text-xs font-medium transition-all cursor-pointer',
               mode === 'write'
                 ? 'bg-[var(--surface)] text-[var(--text-1)] shadow-xs font-semibold'
                 : 'text-[var(--text-3)] hover:text-[var(--text-2)]'
@@ -219,9 +219,22 @@ export default function MarkdownEditor({
           </button>
           <button
             type="button"
+            onClick={() => setMode('split')}
+            className={cn(
+              'flex items-center gap-1 px-2 py-1 rounded-md text-xs font-medium transition-all cursor-pointer',
+              mode === 'split'
+                ? 'bg-[var(--surface)] text-[var(--accent)] shadow-xs font-semibold'
+                : 'text-[var(--text-3)] hover:text-[var(--text-2)]'
+            )}
+            title="Live side-by-side preview"
+          >
+            <Columns className="h-3 w-3" /> Split
+          </button>
+          <button
+            type="button"
             onClick={() => setMode('preview')}
             className={cn(
-              'flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium transition-all cursor-pointer',
+              'flex items-center gap-1 px-2 py-1 rounded-md text-xs font-medium transition-all cursor-pointer',
               mode === 'preview'
                 ? 'bg-[var(--surface)] text-[var(--text-1)] shadow-xs font-semibold'
                 : 'text-[var(--text-3)] hover:text-[var(--text-2)]'
@@ -231,8 +244,8 @@ export default function MarkdownEditor({
           </button>
         </div>
 
-        {/* Formatting Actions (Active in Write Mode) */}
-        {mode === 'write' && (
+        {/* Formatting Actions (Active in Write or Split Mode) */}
+        {mode !== 'preview' && (
           <div className="flex items-center gap-0.5">
             <button
               type="button"
@@ -364,7 +377,56 @@ export default function MarkdownEditor({
       </div>
 
       {/* ── Editor Body ── */}
-      {mode === 'write' ? (
+      {mode === 'split' ? (
+        <div className="grid grid-cols-1 md:grid-cols-2 divide-y md:divide-y-0 md:divide-x divide-[var(--border)] min-h-[160px]">
+          {/* Left Editor */}
+          <div
+            className="relative flex flex-col"
+            onDrop={handleDrop}
+            onDragOver={handleDragOver}
+            onDragLeave={handleDragLeave}
+          >
+            <textarea
+              ref={textareaRef}
+              rows={rows}
+              value={value}
+              onChange={(e) => onChange?.(e.target.value)}
+              onPaste={handlePaste}
+              placeholder={placeholder}
+              className="w-full flex-1 p-3 text-xs text-[var(--text-1)] bg-transparent resize-y focus:outline-none placeholder:text-[var(--text-3)] leading-relaxed font-mono min-h-[140px]"
+            />
+            {dragOver && (
+              <div className="absolute inset-0 bg-[var(--accent-muted)]/90 backdrop-blur-xs border-2 border-dashed border-[var(--accent)] flex flex-col items-center justify-center gap-2 pointer-events-none z-10 animate-fade-in">
+                <ImageIcon className="h-8 w-8 text-[var(--accent)] animate-bounce" />
+                <p className="text-xs font-semibold text-[var(--accent)]">Drop photos here</p>
+              </div>
+            )}
+            <div className="flex items-center justify-between px-3 py-1 text-[10px] text-[var(--text-3)] border-t border-[var(--border)]/40 bg-[var(--surface-2)]/20 mt-auto">
+              <span className="flex items-center gap-1"><Paperclip className="h-3 w-3" /> Paste/Drop photos</span>
+              <span className="font-medium text-[var(--accent)]">Editor</span>
+            </div>
+          </div>
+
+          {/* Right Live Preview */}
+          <div className="p-3 overflow-y-auto max-h-[350px] bg-[var(--surface)]/40 flex flex-col">
+            <div className="flex items-center justify-between pb-1.5 mb-2 border-b border-[var(--border)]/40">
+              <span className="text-[10px] font-semibold text-[var(--text-3)] uppercase tracking-wider">Live Preview</span>
+              <span className="text-[10px] text-[var(--accent)] bg-[var(--accent-muted)] px-1.5 py-0.2 rounded font-medium">Real-time</span>
+            </div>
+            <div
+              dangerouslySetInnerHTML={{ __html: getRenderedHtml() }}
+              onClick={(e: React.MouseEvent<HTMLDivElement>) => {
+                const target = e.target as HTMLElement;
+                if (target.tagName === 'IMG') {
+                  const img = target as HTMLImageElement;
+                  if (img.src) window.open(img.src, '_blank', 'noopener,noreferrer');
+                }
+              }}
+              className="space-y-2 text-xs leading-relaxed flex-1 [&_h1]:text-base [&_h1]:font-bold [&_h2]:text-sm [&_h2]:font-bold [&_h3]:text-xs [&_h3]:font-bold [&_p]:text-xs [&_ul]:list-disc [&_ul]:pl-4 [&_ol]:list-decimal [&_ol]:pl-4 [&_blockquote]:border-l-2 [&_blockquote]:border-[var(--accent)] [&_blockquote]:pl-3 [&_blockquote]:italic [&_code]:bg-[var(--surface-3)] [&_code]:px-1 [&_code]:py-0.5 [&_code]:rounded [&_pre]:bg-[var(--surface-3)] [&_pre]:p-2 [&_pre]:rounded-lg [&_pre]:overflow-x-auto [&_img]:max-h-48 [&_img]:rounded-lg [&_img]:border [&_img]:border-[var(--border)]"
+            />
+          </div>
+        </div>
+      ) : mode === 'write' ? (
         <div
           className="relative"
           onDrop={handleDrop}

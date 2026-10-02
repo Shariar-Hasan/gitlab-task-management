@@ -117,6 +117,7 @@ export interface AppSettings {
   updateCheckHours: number;
   githubRepo: string;
   viewMode: 'table' | 'board' | string;
+  boardColumns: string[];
   [key: string]: any;
 }
 
@@ -133,9 +134,10 @@ export const DEFAULT_SETTINGS: AppSettings = {
   defaultFilterLabels: [],    // string label names
   accentColor: '#10b981',     // custom accent color hex
   persistFilters: true,       // save active filters across reload
-  updateCheckHours: 24,       // how many hours between update checks
+  updateCheckHours: 4,        // how many hours between update checks
   githubRepo: 'Shariar-Hasan/gitlab-task-management', // github repo for version check
   viewMode: 'table',          // 'table' | 'board'
+  boardColumns: ['open', 'ongoing', 'testing', 'pending', 'backlog', 'close'],
 };
 
 // ── Accent Color Applicator ───────────────────────────────────────────────────
