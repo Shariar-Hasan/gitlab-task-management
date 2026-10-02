@@ -10,14 +10,14 @@ import {
   Edit2, Trash2, Check, X, ChevronLeft, ChevronRight,
   MoreHorizontal, CheckCircle2, Circle, Pin, PinOff,
   Tag, UserPlus, Calendar, Search, Plus, Loader2,
-  Users, CheckSquare, Copy, GripVertical,
+  Users, CheckSquare, Copy, GripVertical, SlidersHorizontal,
 } from 'lucide-react';
 import { Button, Badge, Avatar, Spinner } from './ui/index';
 import { DropdownMenu, DropdownItem, DropdownSeparator, useConfirm, Modal, ModalHeader, ModalBody, ModalFooter } from './ui/overlay';
 import { useToast } from './ui/overlay';
 import useStore from '../store/useStore';
 import { cn, formatDate, getDueDateInfo, getDueDateBadgeClass, getVisibleGlobalLabels } from '../lib/utils';
-import { TASK_STATUSES, getEffectiveStatus, compareTaskSequence } from '../lib/localStore';
+import { TASK_STATUSES, getEffectiveStatus, compareTaskSequence, type TableVisibleColumns } from '../lib/localStore';
 
 const PRESET_COLORS = [
   '#ef4444', '#f97316', '#f59e0b', '#10b981', '#06b6d4',
@@ -1225,6 +1225,7 @@ interface TaskTableRowProps {
   isDragging?: boolean;
   dragOverPos?: 'before' | 'after' | null;
   onDragStart?: (e: React.DragEvent, row: Row<any>) => void;
+  onDragEnd?: (e: React.DragEvent) => void;
   onDragOver?: (e: React.DragEvent, row: Row<any>) => void;
   onDragLeave?: (e: React.DragEvent, row: Row<any>) => void;
   onDrop?: (e: React.DragEvent, row: Row<any>) => void;
@@ -1233,13 +1234,14 @@ interface TaskTableRowProps {
 const TaskTableRow = React.memo(
   function TaskTableRow({
     row, isPinned, compact, isDragging, dragOverPos,
-    onDragStart, onDragOver, onDragLeave, onDrop
+    onDragStart, onDragEnd, onDragOver, onDragLeave, onDrop
   }: TaskTableRowProps) {
     return (
       <tr
         key={row.id}
         draggable
         onDragStart={(e) => onDragStart?.(e, row)}
+        onDragEnd={onDragEnd}
         onDragOver={(e) => onDragOver?.(e, row)}
         onDragLeave={(e) => onDragLeave?.(e, row)}
         onDrop={(e) => onDrop?.(e, row)}
@@ -1248,8 +1250,8 @@ const TaskTableRow = React.memo(
           row.getIsSelected() && 'bg-[var(--accent-muted)]',
           isPinned && 'border-l-2 border-l-[var(--accent)] bg-[var(--surface-2)]/30 shadow-xs',
           isDragging && 'opacity-30 bg-[var(--accent-muted)]/20',
-          dragOverPos === 'before' && 'border-t-2 border-t-[var(--accent)] shadow-xs',
-          dragOverPos === 'after' && 'border-b-2 border-b-[var(--accent)] shadow-xs'
+          dragOverPos === 'before' && 'border-t-2 !border-t-[var(--accent)] shadow-xs',
+          dragOverPos === 'after' && 'border-b-2 !border-b-[var(--accent)] shadow-xs'
         )}
       >
         {row.getVisibleCells().map((cell) => (
@@ -1288,6 +1290,7 @@ export default function TaskTable({ onEdit }: TaskTableProps) {
     bulkCloseIssues, bulkAssignToMe,
     globalLabels, appSettings, customStatuses,
     taskSequence, reorderTaskSequence,
+    tableVisibleColumns, toggleTableColumn, resetTableVisibleColumns,
   } = useStore();
   const toast = useToast();
   const confirm = useConfirm();
@@ -1295,6 +1298,48 @@ export default function TaskTable({ onEdit }: TaskTableProps) {
   const [sorting, setSorting] = useState<SortingState>([]);
   const [draggingKey, setDraggingKey] = useState<string | null>(null);
   const [dragOverTarget, setDragOverTarget] = useState<{ key: string; pos: 'before' | 'after' } | null>(null);
+  const [showColMenu, setShowColMenu] = useState(false);
+  const colMenuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    function handleClickOutside(e: MouseEvent | TouchEvent) {
+      if (colMenuRef.current && !colMenuRef.current.contains(e.target as Node)) {
+        setShowColMenu(false);
+      }
+    }
+    if (showColMenu) {
+      document.addEventListener('mousedown', handleClickOutside, true);
+      document.addEventListener('touchstart', handleClickOutside, true);
+    }
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside, true);
+      document.removeEventListener('touchstart', handleClickOutside, true);
+    };
+  }, [showColMenu]);
+
+  const TABLE_COLUMNS: { key: keyof TableVisibleColumns; label: string }[] = useMemo(() => [
+    { key: 'project', label: 'Project' },
+    { key: 'title', label: 'Title' },
+    { key: 'state', label: 'Status' },
+    { key: 'assignees', label: 'Assignees' },
+    { key: 'labels', label: 'Labels' },
+    { key: 'due_date', label: 'Due Date' },
+    { key: 'created_at', label: 'Created Date' },
+  ], []);
+
+  const activeTableColCount = Object.values(tableVisibleColumns).filter(Boolean).length;
+
+  const columnVisibility = useMemo(() => ({
+    select: true,
+    actions: true,
+    project: tableVisibleColumns.project,
+    title: tableVisibleColumns.title,
+    state: tableVisibleColumns.state,
+    assignees: tableVisibleColumns.assignees,
+    labels: tableVisibleColumns.labels,
+    due_date: tableVisibleColumns.due_date,
+    created_at: tableVisibleColumns.created_at,
+  }), [tableVisibleColumns]);
 
   const sequenceMap = useMemo(() => {
     const map = new Map<string, number>();
@@ -1423,15 +1468,26 @@ export default function TaskTable({ onEdit }: TaskTableProps) {
           />
         </div>
       ),
-      cell: ({ row }) => {
-        const isPinned = pinnedKeys.has(`${row.original.project_id}_${row.original.iid}`);
+      cell: ({ row, table }) => {
+        const meta = table.options.meta as any;
+        const key = `${row.original.project_id}_${row.original.iid}`;
+        const isPinned = pinnedKeys.has(key);
         return (
           <div className="flex items-center gap-1">
             <span
+              draggable
+              onDragStart={(e) => {
+                e.stopPropagation();
+                meta?.onRowDragStart?.(e, row);
+              }}
+              onDragEnd={(e) => {
+                e.stopPropagation();
+                meta?.onRowDragEnd?.(e);
+              }}
               title="Drag to reorder sequence"
-              className="text-[var(--text-3)] opacity-0 group-hover:opacity-70 hover:!opacity-100 hover:text-[var(--accent)] cursor-grab active:cursor-grabbing transition-all shrink-0 p-0.5"
+              className="text-[var(--text-3)] opacity-0 group-hover:opacity-70 hover:!opacity-100 hover:text-[var(--accent)] cursor-grab active:cursor-grabbing transition-all shrink-0 p-1 rounded hover:bg-[var(--surface-3)] select-none"
             >
-              <GripVertical className="h-3.5 w-3.5" />
+              <GripVertical className="h-3.5 w-3.5 pointer-events-none" />
             </span>
             <input type="checkbox" className="h-4 w-4 rounded accent-[var(--accent)] cursor-pointer"
               checked={row.getIsSelected()}
@@ -1603,9 +1659,31 @@ export default function TaskTable({ onEdit }: TaskTableProps) {
     },
   ], [projectMap, pinnedKeys, handleUpdate, handleToggleState, handleDelete, togglePin, onEdit, globalLabels, appSettings, customStatuses, confirm]);
 
+  const handleRowDragStart = useCallback((e: React.DragEvent, row: Row<any>) => {
+    const key = `${row.original.project_id}_${row.original.iid}`;
+    setDraggingKey(key);
+    e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.setData('text/plain', key);
+
+    const tr = (e.currentTarget as HTMLElement).closest('tr');
+    if (tr && e.dataTransfer.setDragImage) {
+      e.dataTransfer.setDragImage(tr, 20, 20);
+    }
+  }, []);
+
+  const handleRowDragEnd = useCallback(() => {
+    setDraggingKey(null);
+    setDragOverTarget(null);
+  }, []);
+
   const table = useReactTable({
     data: filteredIssues, columns,
-    state: { rowSelection, sorting },
+    getRowId: (row) => `${row.project_id}_${row.iid}`,
+    meta: {
+      onRowDragStart: handleRowDragStart,
+      onRowDragEnd: handleRowDragEnd,
+    },
+    state: { rowSelection, sorting, columnVisibility },
     enableRowSelection: true,
     manualSorting: true,
     onRowSelectionChange: setRowSelection,
@@ -1618,13 +1696,6 @@ export default function TaskTable({ onEdit }: TaskTableProps) {
       sorting: [],
     },
   });
-
-  const handleRowDragStart = useCallback((e: React.DragEvent, row: Row<any>) => {
-    const key = `${row.original.project_id}_${row.original.iid}`;
-    setDraggingKey(key);
-    e.dataTransfer.effectAllowed = 'move';
-    e.dataTransfer.setData('text/plain', key);
-  }, []);
 
   const handleRowDragOver = useCallback((e: React.DragEvent, row: Row<any>) => {
     e.preventDefault();
@@ -1652,6 +1723,7 @@ export default function TaskTable({ onEdit }: TaskTableProps) {
 
   const handleRowDrop = useCallback((e: React.DragEvent, row: Row<any>) => {
     e.preventDefault();
+    e.stopPropagation();
     const targetKey = `${row.original.project_id}_${row.original.iid}`;
     if (!draggingKey || draggingKey === targetKey) {
       setDraggingKey(null);
@@ -1659,17 +1731,21 @@ export default function TaskTable({ onEdit }: TaskTableProps) {
       return;
     }
 
-    const pos = dragOverTarget?.pos || 'before';
-    const allVisibleKeys = table.getRowModel().rows.map((r) => `${r.original.project_id}_${r.original.iid}`);
+    const rect = e.currentTarget.getBoundingClientRect();
+    const midY = rect.top + rect.height / 2;
+    const pos = e.clientY < midY ? 'before' : 'after';
 
-    reorderTaskSequence(draggingKey, targetKey, pos, allVisibleKeys);
-    if (sorting.length > 0) {
+    const allVisibleKeys = filteredIssues.map((i) => `${i.project_id}_${i.iid}`);
+    const isSortingActive = sorting.length > 0;
+
+    reorderTaskSequence(draggingKey, targetKey, pos, allVisibleKeys, isSortingActive);
+    if (isSortingActive) {
       setSorting([]);
     }
     toast({ type: 'success', message: '✓ Sequence updated' });
     setDraggingKey(null);
     setDragOverTarget(null);
-  }, [draggingKey, dragOverTarget, table, reorderTaskSequence, sorting, toast]);
+  }, [draggingKey, filteredIssues, reorderTaskSequence, sorting, toast]);
 
   const selectedRows = table.getSelectedRowModel().rows;
   const hasSelection = selectedRows.length > 0;
@@ -1706,6 +1782,64 @@ export default function TaskTable({ onEdit }: TaskTableProps) {
 
   return (
     <div className="flex flex-col h-full">
+      {/* ── Sub-header: View Title & Visible Columns ── */}
+      <div className="flex items-center justify-between px-5 py-2 border-b border-[var(--border)] bg-[var(--surface)] shrink-0">
+        <div className="flex items-center gap-2">
+          <span className="text-xs font-semibold text-[var(--text-1)]">Table View</span>
+          <span className="text-[11px] text-[var(--text-3)] font-mono">
+            {filteredIssues.length} task{filteredIssues.length === 1 ? '' : 's'}
+          </span>
+        </div>
+
+        {/* Visible Columns dropdown */}
+        <div className="relative" ref={colMenuRef}>
+          <button
+            type="button"
+            onClick={() => setShowColMenu((v) => !v)}
+            className="flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium rounded-lg border border-[var(--border)] bg-[var(--surface-2)] text-[var(--text-2)] hover:border-[var(--border-hover)] hover:text-[var(--text-1)] transition-colors cursor-pointer"
+          >
+            <SlidersHorizontal className="h-3 w-3" />
+            <span>Visible Columns ({activeTableColCount}/{TABLE_COLUMNS.length})</span>
+          </button>
+
+          {showColMenu && (
+            <div className="absolute right-0 top-full mt-1.5 w-52 p-2 rounded-xl border border-[var(--border)] bg-[var(--surface)] shadow-xl z-50 animate-scale-in">
+              <div className="flex items-center justify-between pb-1.5 mb-1.5 border-b border-[var(--border)]">
+                <span className="text-[11px] font-semibold text-[var(--text-1)]">Visible Columns</span>
+                <button
+                  type="button"
+                  onClick={resetTableVisibleColumns}
+                  className="text-[10px] text-[var(--accent)] hover:underline cursor-pointer"
+                >
+                  Reset all
+                </button>
+              </div>
+              <div className="space-y-1">
+                {TABLE_COLUMNS.map((col) => {
+                  const isVisible = tableVisibleColumns[col.key];
+                  return (
+                    <button
+                      key={col.key}
+                      type="button"
+                      onClick={() => toggleTableColumn(col.key)}
+                      className={cn(
+                        'w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-xs transition-colors cursor-pointer text-left',
+                        isVisible
+                          ? 'bg-[var(--accent-muted)]/40 text-[var(--text-1)] font-medium'
+                          : 'text-[var(--text-3)] hover:bg-[var(--surface-2)]'
+                      )}
+                    >
+                      <span>{col.label}</span>
+                      {isVisible && <Check className="h-3.5 w-3.5 text-[var(--accent)]" />}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+
       {/* Bulk action bar */}
       {hasSelection && (
         <BulkActionBar
@@ -1742,7 +1876,7 @@ export default function TaskTable({ onEdit }: TaskTableProps) {
               ))}
             </tr>
           </thead>
-          <tbody>
+          <tbody onDragEnd={handleRowDragEnd}>
             {issuesLoading ? (
               <SkeletonRows count={12} />
             ) : table.getRowModel().rows.length === 0 ? (
@@ -1768,6 +1902,7 @@ export default function TaskTable({ onEdit }: TaskTableProps) {
                     isDragging={draggingKey === key}
                     dragOverPos={dragOverTarget?.key === key ? dragOverTarget.pos : null}
                     onDragStart={handleRowDragStart}
+                    onDragEnd={handleRowDragEnd}
                     onDragOver={handleRowDragOver}
                     onDragLeave={handleRowDragLeave}
                     onDrop={handleRowDrop}

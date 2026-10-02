@@ -19,8 +19,46 @@ const KEYS = {
   activeFilters:    `${PREFIX}active_filters`,      // persisted active filters
   lastUpdateCheck:  `${PREFIX}last_update_check`,   // timestamp
   latestVersion:    `${PREFIX}latest_version`,      // latest release version string
-  boardStatuses:    `${PREFIX}board_statuses`,      // board view statuses configuration
-  taskSequence:     `${PREFIX}task_sequence`,       // manual task sequence order string[]
+  boardStatuses:        `${PREFIX}board_statuses`,      // board view statuses configuration
+  taskSequence:         `${PREFIX}task_sequence`,       // manual task sequence order string[]
+  tableVisibleColumns:  `${PREFIX}table_visible_columns`,
+  boardVisibleColumns:  `${PREFIX}board_visible_columns`,
+};
+
+export interface TableVisibleColumns {
+  project: boolean;
+  title: boolean;
+  state: boolean;
+  assignees: boolean;
+  labels: boolean;
+  due_date: boolean;
+  created_at: boolean;
+}
+
+export const DEFAULT_TABLE_VISIBLE_COLUMNS: TableVisibleColumns = {
+  project: true,
+  title: true,
+  state: true,
+  assignees: true,
+  labels: true,
+  due_date: true,
+  created_at: true,
+};
+
+export interface BoardVisibleColumns {
+  project: boolean;
+  status: boolean;
+  dueDate: boolean;
+  labels: boolean;
+  assignees: boolean;
+}
+
+export const DEFAULT_BOARD_VISIBLE_COLUMNS: BoardVisibleColumns = {
+  project: true,
+  status: true,
+  dueDate: true,
+  labels: true,
+  assignees: true,
 };
 
 export const CLOSED_CUTOFF_DAYS = 30;
@@ -399,17 +437,40 @@ export const localStore = {
     return sequence;
   },
 
-  reorderTask(draggedKey: string, targetKey: string, position: 'before' | 'after' = 'before', allKeys?: string[]): string[] {
+  reorderTask(
+    draggedKey: string,
+    targetKey: string,
+    position: 'before' | 'after' = 'before',
+    allKeys?: string[],
+    forceSeed = false
+  ): string[] {
+    if (!draggedKey || !targetKey || draggedKey === targetKey) {
+      return this.getTaskSequence();
+    }
+
     let current = [...this.getTaskSequence()];
-    if (allKeys && allKeys.length > 0) {
-      // Ensure all visible keys are seeded in order if sequence is new
-      const set = new Set(current);
-      for (const k of allKeys) {
-        if (!set.has(k)) {
-          current.push(k);
-          set.add(k);
+
+    // If forceSeed is requested (e.g. from an actively sorted table), or if current sequence is empty
+    if (forceSeed && allKeys && allKeys.length > 0) {
+      current = [...allKeys];
+    } else if (allKeys && allKeys.length > 0) {
+      if (current.length === 0) {
+        current = [...allKeys];
+      } else {
+        // Ensure all visible keys are seeded in order if not in sequence yet
+        const set = new Set(current);
+        for (const k of allKeys) {
+          if (!set.has(k)) {
+            current.push(k);
+            set.add(k);
+          }
         }
       }
+    }
+
+    // Ensure targetKey is in current if somehow missing
+    if (!current.includes(targetKey)) {
+      current.push(targetKey);
     }
 
     // Remove draggedKey
@@ -428,6 +489,29 @@ export const localStore = {
     }
 
     return this.setTaskSequence(filtered);
+  },
+
+  // ── Visible Columns Settings ─────────────────────────────────────────────────
+  getTableVisibleColumns(): TableVisibleColumns {
+    return { ...DEFAULT_TABLE_VISIBLE_COLUMNS, ...(get<Partial<TableVisibleColumns>>(KEYS.tableVisibleColumns, {}) || {}) };
+  },
+
+  setTableVisibleColumns(cols: Partial<TableVisibleColumns>): TableVisibleColumns {
+    const current = this.getTableVisibleColumns();
+    const updated = { ...current, ...cols };
+    set(KEYS.tableVisibleColumns, updated);
+    return updated;
+  },
+
+  getBoardVisibleColumns(): BoardVisibleColumns {
+    return { ...DEFAULT_BOARD_VISIBLE_COLUMNS, ...(get<Partial<BoardVisibleColumns>>(KEYS.boardVisibleColumns, {}) || {}) };
+  },
+
+  setBoardVisibleColumns(cols: Partial<BoardVisibleColumns>): BoardVisibleColumns {
+    const current = this.getBoardVisibleColumns();
+    const updated = { ...current, ...cols };
+    set(KEYS.boardVisibleColumns, updated);
+    return updated;
   },
 
   // Full wipe

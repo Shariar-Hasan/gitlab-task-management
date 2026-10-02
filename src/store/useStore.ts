@@ -1,6 +1,12 @@
 import { create } from 'zustand';
 import { storage, applyTheme, getSystemTheme, type GlobalLabel } from '../lib/utils';
-import { localStore, applyAccentColor, type AppSettings, type ProjectOverride, type TemplateItem, type GlobalLabelDef, type BoardStatusConfig } from '../lib/localStore';
+import {
+  localStore, applyAccentColor,
+  type AppSettings, type ProjectOverride, type TemplateItem,
+  type GlobalLabelDef, type BoardStatusConfig,
+  type TableVisibleColumns, type BoardVisibleColumns,
+  DEFAULT_TABLE_VISIBLE_COLUMNS, DEFAULT_BOARD_VISIBLE_COLUMNS,
+} from '../lib/localStore';
 import {
   validateConnection, fetchAllProjects, fetchAllIssues,
   fetchProjectLabels, fetchProjectMembers,
@@ -104,8 +110,18 @@ export interface StoreState {
 
   // Task Manual Sequence (Custom ordering)
   taskSequence: string[];
-  reorderTaskSequence: (draggedKey: string, targetKey: string, position?: 'before' | 'after', allKeys?: string[]) => void;
+  reorderTaskSequence: (draggedKey: string, targetKey: string, position?: 'before' | 'after', allKeys?: string[], forceSeed?: boolean) => void;
   setTaskSequence: (sequence: string[]) => void;
+
+  // Visible Columns / Fields
+  tableVisibleColumns: TableVisibleColumns;
+  boardVisibleColumns: BoardVisibleColumns;
+  setTableVisibleColumns: (cols: Partial<TableVisibleColumns>) => void;
+  setBoardVisibleColumns: (cols: Partial<BoardVisibleColumns>) => void;
+  toggleTableColumn: (col: keyof TableVisibleColumns) => void;
+  toggleBoardColumn: (col: keyof BoardVisibleColumns) => void;
+  resetTableVisibleColumns: () => void;
+  resetBoardVisibleColumns: () => void;
 
   // Pinned Tasks
   pinnedKeys: Set<string>;
@@ -781,14 +797,50 @@ const useStore = create<StoreState>((set, get) => ({
   // Task Sequence
   taskSequence: localStore.getTaskSequence(),
 
-  reorderTaskSequence(draggedKey: string, targetKey: string, position: 'before' | 'after' = 'before', allKeys?: string[]) {
-    const updated = localStore.reorderTask(draggedKey, targetKey, position, allKeys);
+  reorderTaskSequence(draggedKey: string, targetKey: string, position: 'before' | 'after' = 'before', allKeys?: string[], forceSeed = false) {
+    const updated = localStore.reorderTask(draggedKey, targetKey, position, allKeys, forceSeed);
     set({ taskSequence: [...updated] });
   },
 
   setTaskSequence(sequence: string[]) {
     const updated = localStore.setTaskSequence(sequence);
     set({ taskSequence: [...updated] });
+  },
+
+  // Visible Columns
+  tableVisibleColumns: localStore.getTableVisibleColumns(),
+  boardVisibleColumns: localStore.getBoardVisibleColumns(),
+
+  setTableVisibleColumns(cols: Partial<TableVisibleColumns>) {
+    const updated = localStore.setTableVisibleColumns(cols);
+    set({ tableVisibleColumns: { ...updated } });
+  },
+
+  setBoardVisibleColumns(cols: Partial<BoardVisibleColumns>) {
+    const updated = localStore.setBoardVisibleColumns(cols);
+    set({ boardVisibleColumns: { ...updated } });
+  },
+
+  toggleTableColumn(col: keyof TableVisibleColumns) {
+    const current = get().tableVisibleColumns;
+    const updated = localStore.setTableVisibleColumns({ [col]: !current[col] });
+    set({ tableVisibleColumns: { ...updated } });
+  },
+
+  toggleBoardColumn(col: keyof BoardVisibleColumns) {
+    const current = get().boardVisibleColumns;
+    const updated = localStore.setBoardVisibleColumns({ [col]: !current[col] });
+    set({ boardVisibleColumns: { ...updated } });
+  },
+
+  resetTableVisibleColumns() {
+    const updated = localStore.setTableVisibleColumns(DEFAULT_TABLE_VISIBLE_COLUMNS);
+    set({ tableVisibleColumns: { ...updated } });
+  },
+
+  resetBoardVisibleColumns() {
+    const updated = localStore.setBoardVisibleColumns(DEFAULT_BOARD_VISIBLE_COLUMNS);
+    set({ boardVisibleColumns: { ...updated } });
   },
 
   async setTaskStatus(projectId: string | number, iid: string | number, newStatus: string): Promise<void> {

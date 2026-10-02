@@ -4,9 +4,20 @@ import {
 } from 'lucide-react';
 import { cn } from '../lib/utils';
 import useStore from '../store/useStore';
-import { TASK_STATUSES, getEffectiveStatus, compareTaskSequence, type TaskStatus } from '../lib/localStore';
+import {
+  TASK_STATUSES, getEffectiveStatus, compareTaskSequence,
+  type TaskStatus, type BoardVisibleColumns,
+} from '../lib/localStore';
 import { Button } from './ui/index';
 import { DropdownMenu, DropdownItem, DropdownSeparator, useToast } from './ui/overlay';
+
+const BOARD_FIELDS: { key: keyof BoardVisibleColumns; label: string }[] = [
+  { key: 'project', label: 'Project' },
+  { key: 'status', label: 'Status Dot' },
+  { key: 'dueDate', label: 'Due Date' },
+  { key: 'labels', label: 'Labels' },
+  { key: 'assignees', label: 'Assignees' },
+];
 
 // Inline mini-avatar
 function MiniAvatar({ src, name, size = 20 }: { src?: string | null; name?: string | null; size?: number }) {
@@ -42,20 +53,23 @@ interface TaskCardProps {
   status: string;
   isDragging: boolean;
   dragOverPos?: 'before' | 'after' | null;
-  onDragStart: () => void;
+  onDragStart: (e: React.DragEvent, issue: any, status: string) => void;
+  onDragEnd: (e: React.DragEvent) => void;
   onDragOver?: (e: React.DragEvent, issue: any) => void;
   onDragLeave?: (e: React.DragEvent, issue: any) => void;
   onDrop?: (e: React.DragEvent, issue: any, statusId: string) => void;
   onEdit: (issue: any) => void;
   globalLabels: any[];
+  visibleColumns: BoardVisibleColumns;
+  projectName?: string;
 }
 
 // ── Task Card ──────────────────────────────────────────────────────────────────
 const TaskCard = React.memo(
   function TaskCard({
     issue, status, isDragging, dragOverPos,
-    onDragStart, onDragOver, onDragLeave, onDrop,
-    onEdit, globalLabels
+    onDragStart, onDragEnd, onDragOver, onDragLeave, onDrop,
+    onEdit, globalLabels, visibleColumns, projectName
   }: TaskCardProps) {
     const cardRef = useRef<HTMLDivElement>(null);
     const dueInfo = getDueInfo(issue.due_date);
@@ -72,7 +86,8 @@ const TaskCard = React.memo(
       <div
         ref={cardRef}
         draggable
-        onDragStart={onDragStart}
+        onDragStart={(e) => onDragStart(e, issue, status)}
+        onDragEnd={onDragEnd}
         onDragOver={(e) => onDragOver?.(e, issue)}
         onDragLeave={(e) => onDragLeave?.(e, issue)}
         onDrop={(e) => onDrop?.(e, issue, status)}
@@ -83,23 +98,33 @@ const TaskCard = React.memo(
           isDragging
             ? 'opacity-30 scale-95 border-[var(--accent)]'
             : 'border-[var(--border)] hover:translate-y-[-1px]',
-          dragOverPos === 'before' && 'border-t-2 border-t-[var(--accent)] shadow-md',
-          dragOverPos === 'after' && 'border-b-2 border-b-[var(--accent)] shadow-md'
+          dragOverPos === 'before' && 'border-t-2 !border-t-[var(--accent)] shadow-md',
+          dragOverPos === 'after' && 'border-b-2 !border-b-[var(--accent)] shadow-md'
         )}
         onClick={() => onEdit(issue)}
       >
-        {/* Status dot */}
+        {/* Status dot & Project */}
         <div className="flex items-start justify-between gap-2 mb-2">
-          <div className="flex items-center gap-1.5 min-w-0">
-            <span
-              className="h-2 w-2 rounded-full shrink-0"
-              style={{ backgroundColor: statusInfo?.color || '#64748b' }}
-            />
-            <span className="text-[10px] text-[var(--text-3)] font-mono">
+          <div className="flex items-center gap-1.5 min-w-0 flex-wrap">
+            {visibleColumns.status && (
+              <span
+                className="h-2 w-2 rounded-full shrink-0"
+                style={{ backgroundColor: statusInfo?.color || '#64748b' }}
+              />
+            )}
+            <span className="text-[10px] text-[var(--text-3)] font-mono shrink-0">
               #{issue.iid}
             </span>
+            {visibleColumns.project && projectName && (
+              <span
+                className="text-[9px] font-medium text-[var(--text-2)] bg-[var(--surface-3)] px-1.5 py-0.5 rounded border border-[var(--border)] truncate max-w-[120px]"
+                title={projectName}
+              >
+                {projectName}
+              </span>
+            )}
           </div>
-          <GripVertical className="h-3.5 w-3.5 text-[var(--text-3)] opacity-0 group-hover:opacity-100 transition-opacity shrink-0 mt-0.5" />
+          <GripVertical className="h-3.5 w-3.5 text-[var(--text-3)] opacity-0 group-hover:opacity-100 transition-opacity shrink-0 mt-0.5 pointer-events-none" />
         </div>
 
         {/* Title */}
@@ -111,7 +136,7 @@ const TaskCard = React.memo(
         </p>
 
         {/* Labels */}
-        {visibleLabels.length > 0 && (
+        {visibleColumns.labels && visibleLabels.length > 0 && (
           <div className="flex flex-wrap gap-1 mb-2.5">
             {visibleLabels.map((l: any) => (
               <span
@@ -134,27 +159,29 @@ const TaskCard = React.memo(
         )}
 
         {/* Footer: due date + assignees */}
-        <div className="flex items-center justify-between gap-2">
-          <div className="flex items-center gap-1.5">
-            {dueInfo && (
-              <span className={cn('text-[9px] px-1.5 py-0.5 rounded border font-medium', dueInfo.cls)}>
-                {dueInfo.text}
-              </span>
+        {((visibleColumns.dueDate && dueInfo) || (visibleColumns.assignees && assignees.length > 0)) && (
+          <div className="flex items-center justify-between gap-2 mt-auto">
+            <div className="flex items-center gap-1.5">
+              {visibleColumns.dueDate && dueInfo && (
+                <span className={cn('text-[9px] px-1.5 py-0.5 rounded border font-medium', dueInfo.cls)}>
+                  {dueInfo.text}
+                </span>
+              )}
+            </div>
+            {visibleColumns.assignees && assignees.length > 0 && (
+              <div className="flex -space-x-1">
+                {assignees.slice(0, 3).map((a: any, i: number) => (
+                  <MiniAvatar
+                    key={a.id || i}
+                    src={a.avatar_url}
+                    name={a.name || a.username}
+                    size={18}
+                  />
+                ))}
+              </div>
             )}
           </div>
-          {assignees.length > 0 && (
-            <div className="flex -space-x-1">
-              {assignees.slice(0, 3).map((a: any, i: number) => (
-                <MiniAvatar
-                  key={a.id || i}
-                  src={a.avatar_url}
-                  name={a.name || a.username}
-                  size={18}
-                />
-              ))}
-            </div>
-          )}
-        </div>
+        )}
       </div>
     );
   },
@@ -164,7 +191,9 @@ const TaskCard = React.memo(
       prev.status === next.status &&
       prev.isDragging === next.isDragging &&
       prev.dragOverPos === next.dragOverPos &&
-      prev.globalLabels === next.globalLabels
+      prev.globalLabels === next.globalLabels &&
+      prev.visibleColumns === next.visibleColumns &&
+      prev.projectName === next.projectName
     );
   }
 );
@@ -177,7 +206,8 @@ interface BoardColumnProps {
   draggingIssueId: string | null;
   draggingStatus?: string;
   dragOverTarget?: { key: string; pos: 'before' | 'after' } | null;
-  onDragStart: (issue: any, statusId: string) => void;
+  onDragStart: (e: React.DragEvent, issue: any, statusId: string) => void;
+  onDragEnd: (e: React.DragEvent) => void;
   onCardDragOver: (e: React.DragEvent, issue: any) => void;
   onCardDragLeave: (e: React.DragEvent, issue: any) => void;
   onCardDrop: (e: React.DragEvent, targetIssue: any, statusId: string) => void;
@@ -186,16 +216,20 @@ interface BoardColumnProps {
   onColumnDragLeave: () => void;
   isDragTarget: boolean;
   isUpdating: boolean;
+  visibleColumns: BoardVisibleColumns;
+  projectMap: Record<string | number, any>;
 }
 
 // ── Column ──────────────────────────────────────────────────────────────────────
 const BoardColumn = React.memo(function BoardColumn({
   status, tasks, onEdit, globalLabels,
   draggingIssueId, draggingStatus, dragOverTarget,
-  onDragStart, onCardDragOver, onCardDragLeave, onCardDrop,
+  onDragStart, onDragEnd, onCardDragOver, onCardDragLeave, onCardDrop,
   onColumnDrop, onColumnDragOver, onColumnDragLeave,
   isDragTarget,
   isUpdating,
+  visibleColumns,
+  projectMap,
 }: BoardColumnProps) {
   const taskCount = tasks.length;
 
@@ -250,12 +284,15 @@ const BoardColumn = React.memo(function BoardColumn({
               status={status.id}
               isDragging={draggingIssueId === key}
               dragOverPos={dragOverTarget?.key === key ? dragOverTarget.pos : null}
-              onDragStart={() => onDragStart(issue, status.id)}
+              onDragStart={onDragStart}
+              onDragEnd={onDragEnd}
               onDragOver={onCardDragOver}
               onDragLeave={onCardDragLeave}
               onDrop={onCardDrop}
               onEdit={onEdit}
               globalLabels={globalLabels}
+              visibleColumns={visibleColumns}
+              projectName={projectMap[issue.project_id]?.name}
             />
           );
         })}
@@ -278,12 +315,13 @@ export interface BoardViewProps {
 // ── Board View ─────────────────────────────────────────────────────────────────
 export default function BoardView({ onEdit }: BoardViewProps) {
   const {
-    issues, customStatuses, globalLabels,
+    issues, projects, customStatuses, globalLabels,
     filterProjects, filterStatus, filterLabels, assignedToMe, globalFilter,
     projectOverrides, currentUser,
-    boardStatuses, updateBoardStatus,
+    boardStatuses,
     setTaskStatus,
     taskSequence, reorderTaskSequence,
+    boardVisibleColumns, toggleBoardColumn, resetBoardVisibleColumns,
   } = useStore();
 
   const toast = useToast();
@@ -312,28 +350,19 @@ export default function BoardView({ onEdit }: BoardViewProps) {
     };
   }, [showColMenu]);
 
+  const projectMap = useMemo(() => {
+    const map: Record<string | number, any> = {};
+    (projects || []).forEach((p) => { map[p.id] = p; });
+    return map;
+  }, [projects]);
+
   // Board columns configured in settings
   const visibleStatuses = useMemo(() => {
     const enabled = boardStatuses.filter((s) => s.enabled);
     return enabled.length > 0 ? enabled : boardStatuses;
   }, [boardStatuses]);
 
-  const toggleColumn = useCallback((statusId: string) => {
-    const target = boardStatuses.find((s) => s.id === statusId);
-    if (!target) return;
-    if (target.enabled && visibleStatuses.length <= 1) {
-      toast({ type: 'warning', message: 'At least one column must remain visible' });
-      return;
-    }
-    updateBoardStatus(statusId, { enabled: !target.enabled });
-  }, [boardStatuses, visibleStatuses, updateBoardStatus, toast]);
-
-  const resetColumns = useCallback(() => {
-    boardStatuses.forEach((s) => {
-      if (!s.enabled) updateBoardStatus(s.id, { enabled: true });
-    });
-    toast({ type: 'info', message: 'All board columns restored' });
-  }, [boardStatuses, updateBoardStatus, toast]);
+  const activeFieldCount = Object.values(boardVisibleColumns).filter(Boolean).length;
 
   // Apply same filters as table view
   const filteredIssues = useMemo(() => {
@@ -416,8 +445,17 @@ export default function BoardView({ onEdit }: BoardViewProps) {
     return map;
   }, [filteredIssues, customStatuses, boardStatuses, sequenceMap]);
 
-  const handleDragStart = useCallback((issue: any, fromStatus: string) => {
+  const handleDragStart = useCallback((e: React.DragEvent, issue: any, fromStatus: string) => {
+    const key = `${issue.project_id}_${issue.iid}`;
     setDragging({ issue, fromStatus });
+    e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.setData('text/plain', key);
+  }, []);
+
+  const handleDragEnd = useCallback(() => {
+    setDragging(null);
+    setDragTarget(null);
+    setDragOverTarget(null);
   }, []);
 
   const handleColumnDragOver = useCallback((statusId: string) => {
@@ -453,6 +491,22 @@ export default function BoardView({ onEdit }: BoardViewProps) {
     }
   }, []);
 
+  // Compute all visible tasks in current board visual sequence order
+  const allVisibleKeys = useMemo(() => {
+    const keys: string[] = [];
+    visibleStatuses.forEach((st) => {
+      (columnTasks[st.id] || []).forEach((i) => {
+        keys.push(`${i.project_id}_${i.iid}`);
+      });
+    });
+    const set = new Set(keys);
+    filteredIssues.forEach((i) => {
+      const k = `${i.project_id}_${i.iid}`;
+      if (!set.has(k)) keys.push(k);
+    });
+    return keys;
+  }, [visibleStatuses, columnTasks, filteredIssues]);
+
   const handleCardDrop = useCallback(async (e: React.DragEvent, targetIssue: any, toStatus: string) => {
     e.preventDefault();
     e.stopPropagation();
@@ -461,12 +515,20 @@ export default function BoardView({ onEdit }: BoardViewProps) {
     const draggedKey = `${issue.project_id}_${issue.iid}`;
     const targetKey = `${targetIssue.project_id}_${targetIssue.iid}`;
 
-    const pos = dragOverTarget?.pos || 'before';
+    if (draggedKey === targetKey) {
+      setDragging(null);
+      setDragTarget(null);
+      setDragOverTarget(null);
+      return;
+    }
+
+    const rect = e.currentTarget.getBoundingClientRect();
+    const midY = rect.top + rect.height / 2;
+    const pos = e.clientY < midY ? 'before' : 'after';
+
     setDragging(null);
     setDragTarget(null);
     setDragOverTarget(null);
-
-    const allVisibleKeys = filteredIssues.map((i) => `${i.project_id}_${i.iid}`);
 
     // Update status if moved to a different column
     if (fromStatus !== toStatus) {
@@ -485,7 +547,7 @@ export default function BoardView({ onEdit }: BoardViewProps) {
     }
 
     reorderTaskSequence(draggedKey, targetKey, pos, allVisibleKeys);
-  }, [dragging, dragOverTarget, filteredIssues, setTaskStatus, boardStatuses, reorderTaskSequence, toast]);
+  }, [dragging, allVisibleKeys, setTaskStatus, boardStatuses, reorderTaskSequence, toast]);
 
   const handleColumnDrop = useCallback(async (toStatus: string) => {
     if (!dragging) return;
@@ -495,8 +557,6 @@ export default function BoardView({ onEdit }: BoardViewProps) {
     setDragging(null);
     setDragTarget(null);
     setDragOverTarget(null);
-
-    const allVisibleKeys = filteredIssues.map((i) => `${i.project_id}_${i.iid}`);
 
     if (fromStatus !== toStatus) {
       setUpdatingStatus(toStatus);
@@ -517,7 +577,7 @@ export default function BoardView({ onEdit }: BoardViewProps) {
     if (lastColTask && `${lastColTask.project_id}_${lastColTask.iid}` !== draggedKey) {
       reorderTaskSequence(draggedKey, `${lastColTask.project_id}_${lastColTask.iid}`, 'after', allVisibleKeys);
     }
-  }, [dragging, columnTasks, filteredIssues, setTaskStatus, boardStatuses, reorderTaskSequence, toast]);
+  }, [dragging, columnTasks, allVisibleKeys, setTaskStatus, boardStatuses, reorderTaskSequence, toast]);
 
   const draggingId = dragging ? `${dragging.issue.project_id}_${dragging.issue.iid}` : null;
 
@@ -532,7 +592,7 @@ export default function BoardView({ onEdit }: BoardViewProps) {
           </span>
         </div>
 
-        {/* Column selector dropdown */}
+        {/* Visible Columns dropdown */}
         <div className="relative" ref={colMenuRef}>
           <button
             type="button"
@@ -540,7 +600,7 @@ export default function BoardView({ onEdit }: BoardViewProps) {
             className="flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium rounded-lg border border-[var(--border)] bg-[var(--surface-2)] text-[var(--text-2)] hover:border-[var(--border-hover)] hover:text-[var(--text-1)] transition-colors cursor-pointer"
           >
             <SlidersHorizontal className="h-3 w-3" />
-            <span>Columns ({visibleStatuses.length}/{boardStatuses.length})</span>
+            <span>Visible Columns ({activeFieldCount}/{BOARD_FIELDS.length})</span>
           </button>
 
           {showColMenu && (
@@ -549,21 +609,21 @@ export default function BoardView({ onEdit }: BoardViewProps) {
                 <span className="text-[11px] font-semibold text-[var(--text-1)]">Visible Columns</span>
                 <button
                   type="button"
-                  onClick={resetColumns}
+                  onClick={resetBoardVisibleColumns}
                   className="text-[10px] text-[var(--accent)] hover:underline cursor-pointer"
                 >
-                  Show all
+                  Reset all
                 </button>
               </div>
 
               <div className="space-y-1">
-                {boardStatuses.map((s) => {
-                  const isVisible = s.enabled;
+                {BOARD_FIELDS.map((f) => {
+                  const isVisible = boardVisibleColumns[f.key];
                   return (
                     <button
-                      key={s.id}
+                      key={f.key}
                       type="button"
-                      onClick={() => toggleColumn(s.id)}
+                      onClick={() => toggleBoardColumn(f.key)}
                       className={cn(
                         'w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-xs transition-colors cursor-pointer text-left',
                         isVisible
@@ -571,10 +631,7 @@ export default function BoardView({ onEdit }: BoardViewProps) {
                           : 'text-[var(--text-3)] hover:bg-[var(--surface-2)]'
                       )}
                     >
-                      <div className="flex items-center gap-2">
-                        <span className="h-2 w-2 rounded-full shrink-0" style={{ backgroundColor: s.color }} />
-                        <span>{s.label}</span>
-                      </div>
+                      <span>{f.label}</span>
                       {isVisible && <Check className="h-3.5 w-3.5 text-[var(--accent)]" />}
                     </button>
                   );
@@ -602,6 +659,7 @@ export default function BoardView({ onEdit }: BoardViewProps) {
               draggingStatus={dragging?.fromStatus}
               dragOverTarget={dragOverTarget}
               onDragStart={handleDragStart}
+              onDragEnd={handleDragEnd}
               onCardDragOver={handleCardDragOver}
               onCardDragLeave={handleCardDragLeave}
               onCardDrop={handleCardDrop}
@@ -610,6 +668,8 @@ export default function BoardView({ onEdit }: BoardViewProps) {
               onColumnDragLeave={handleColumnDragLeave}
               isDragTarget={dragTarget === status.id && dragging?.fromStatus !== status.id}
               isUpdating={updatingStatus === status.id}
+              visibleColumns={boardVisibleColumns}
+              projectMap={projectMap}
             />
           ))}
         </div>
