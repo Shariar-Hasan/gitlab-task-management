@@ -1267,9 +1267,16 @@ const TaskTableRow = React.memo(
         onDragOver={(e) => onDragOver?.(e, row)}
         onDragLeave={(e) => onDragLeave?.(e, row)}
         onDrop={(e) => onDrop?.(e, row)}
+        onClick={(e) => {
+          const target = e.target as HTMLElement;
+          if (target.closest('button, input, a, [role="menuitem"], [role="button"], span[draggable]')) {
+            return;
+          }
+          row.toggleSelected();
+        }}
         className={cn(
-          'group border-b border-[var(--border)] hover:bg-[var(--surface)] transition-all duration-150 theme-transition relative',
-          isSelected && 'bg-[var(--accent-muted)]',
+          'group border-b border-[var(--border)] hover:bg-[var(--surface)] transition-all duration-150 theme-transition relative cursor-pointer',
+          isSelected && 'bg-[var(--accent-muted)]/40 hover:bg-[var(--accent-muted)]/50',
           isPinned && 'border-l-2 border-l-[var(--accent)] bg-[var(--surface-2)]/30 shadow-xs',
           isDragging && 'opacity-30 bg-[var(--accent-muted)]/20',
           dragOverPos === 'before' && 'border-t-2 !border-t-[var(--accent)] shadow-xs',
@@ -1282,17 +1289,6 @@ const TaskTableRow = React.memo(
           </td>
         ))}
       </tr>
-    );
-  },
-  (prev, next) => {
-    return (
-      prev.row.original === next.row.original &&
-      prev.isSelected === next.isSelected &&
-      prev.columnVisibility === next.columnVisibility &&
-      prev.isPinned === next.isPinned &&
-      prev.compact === next.compact &&
-      prev.isDragging === next.isDragging &&
-      prev.dragOverPos === next.dragOverPos
     );
   }
 );
@@ -1499,20 +1495,18 @@ export default function TaskTable({ onEdit }: TaskTableProps) {
     catch (e: any) { toast({ type: 'error', message: e.message }); }
   }, [toggleTaskState, toast, appSettings?.undoPeriod]);
 
-  const columns: ColumnDef<any>[] = useMemo(() => [
+  const allColumns: ColumnDef<any>[] = useMemo(() => [
     // ── Checkbox & Pin & Drag Handle ──
     {
-      id: 'select', size: 84, enableSorting: false,
+      id: 'select', size: 90, enableSorting: false,
       header: ({ table }) => (
-        <div className="flex items-center gap-1">
-          <span className="w-[22px] shrink-0" />
+        <div className="flex items-center gap-1.5">
           <input
             type="checkbox"
-            className="h-4 w-4 rounded accent-[var(--accent)] cursor-pointer"
+            className="h-4 w-4 rounded accent-[var(--accent)] cursor-pointer shrink-0"
             checked={table.getIsAllPageRowsSelected()}
             ref={(el) => { if (el) el.indeterminate = table.getIsSomePageRowsSelected(); }}
             onChange={(e) => table.toggleAllPageRowsSelected(e.target.checked)}
-            onClick={(e) => e.stopPropagation()}
             title="Select all tasks on page"
           />
         </div>
@@ -1522,7 +1516,14 @@ export default function TaskTable({ onEdit }: TaskTableProps) {
         const key = `${row.original.project_id}_${row.original.iid}`;
         const isPinned = pinnedKeys.has(key);
         return (
-          <div className="flex items-center gap-1">
+          <div className="flex items-center gap-1.5">
+            <input
+              type="checkbox"
+              className="h-4 w-4 rounded accent-[var(--accent)] cursor-pointer shrink-0"
+              checked={row.getIsSelected()}
+              onChange={(e) => row.toggleSelected(e.target.checked)}
+              title="Select task"
+            />
             <span
               draggable
               onDragStart={(e) => {
@@ -1534,18 +1535,10 @@ export default function TaskTable({ onEdit }: TaskTableProps) {
                 meta?.onRowDragEnd?.(e);
               }}
               title="Drag to reorder sequence"
-              className="text-[var(--text-3)] opacity-0 group-hover:opacity-70 hover:!opacity-100 hover:text-[var(--accent)] cursor-grab active:cursor-grabbing transition-all shrink-0 p-1 rounded hover:bg-[var(--surface-3)] select-none"
+              className="text-[var(--text-3)] opacity-0 group-hover:opacity-70 hover:!opacity-100 hover:text-[var(--accent)] cursor-grab active:cursor-grabbing transition-all shrink-0 p-0.5 rounded hover:bg-[var(--surface-3)] select-none"
             >
               <GripVertical className="h-3.5 w-3.5 pointer-events-none" />
             </span>
-            <input
-              type="checkbox"
-              className="h-4 w-4 rounded accent-[var(--accent)] cursor-pointer"
-              checked={row.getIsSelected()}
-              onChange={(e) => row.toggleSelected(e.target.checked)}
-              onClick={(e) => e.stopPropagation()}
-              title="Select task"
-            />
             <button
               type="button"
               onClick={(e) => {
@@ -1553,7 +1546,7 @@ export default function TaskTable({ onEdit }: TaskTableProps) {
                 togglePin(row.original.project_id, row.original.iid);
               }}
               title={isPinned ? 'Unpin task (return to normal sort)' : 'Pin task to top'}
-              className="p-1 rounded hover:bg-[var(--surface-3)] transition-transform duration-200 active:scale-75 cursor-pointer shrink-0"
+              className="p-0.5 rounded hover:bg-[var(--surface-3)] transition-transform duration-200 active:scale-75 cursor-pointer shrink-0"
             >
               {isPinned ? (
                 <Pin className="h-3.5 w-3.5 text-[var(--accent)] animate-pin-pop" fill="currentColor" />
@@ -1711,6 +1704,13 @@ export default function TaskTable({ onEdit }: TaskTableProps) {
     },
   ], [projectMap, pinnedKeys, handleUpdate, handleToggleState, handleDelete, togglePin, onEdit, globalLabels, appSettings, customStatuses, confirm]);
 
+  const columns = useMemo(() => {
+    return allColumns.filter((col) => {
+      if (col.id === 'select' || col.id === 'actions') return true;
+      return tableVisibleColumns[col.id as keyof TableVisibleColumns] !== false;
+    });
+  }, [allColumns, tableVisibleColumns]);
+
   const handleRowDragStart = useCallback((e: React.DragEvent, row: Row<any>) => {
     const key = `${row.original.project_id}_${row.original.iid}`;
     setDraggingKey(key);
@@ -1735,7 +1735,7 @@ export default function TaskTable({ onEdit }: TaskTableProps) {
       onRowDragStart: handleRowDragStart,
       onRowDragEnd: handleRowDragEnd,
     },
-    state: { rowSelection, sorting, columnVisibility },
+    state: { rowSelection, sorting },
     enableRowSelection: true,
     manualSorting: true,
     onRowSelectionChange: setRowSelection,
@@ -1979,7 +1979,7 @@ export default function TaskTable({ onEdit }: TaskTableProps) {
               <SkeletonRows count={12} />
             ) : table.getRowModel().rows.length === 0 ? (
               <tr>
-                <td colSpan={8} className="text-center py-16">
+                <td colSpan={table.getVisibleLeafColumns().length || 8} className="text-center py-16">
                   <div className="flex flex-col items-center gap-2">
                     <div className="h-12 w-12 rounded-2xl bg-[var(--surface-2)] border border-[var(--border)] flex items-center justify-center">
                       <CheckCircle2 className="h-6 w-6 text-[var(--border)]" />

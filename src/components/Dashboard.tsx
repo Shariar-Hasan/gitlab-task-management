@@ -1,14 +1,15 @@
-import React, { useEffect, useState, useMemo, useCallback } from 'react';
+import React, { useEffect, useState, useMemo, useCallback, useRef } from 'react';
 import {
   GitBranch, Search, Plus, Filter, RefreshCw, Settings,
   AlertCircle, X, BarChart3, CheckCircle2, Clock, Circle,
   FolderGit2, CircleDot, Tag, List, Kanban, User, Bell,
-  ExternalLink,
+  ExternalLink, Keyboard, HelpCircle,
 } from 'lucide-react';
 import {
   Button, Input, Spinner, ProgressBar, Skeleton,
   ThemeToggle, CacheStatus, FilterSelect,
 } from './ui/index';
+import { Modal } from './ui/overlay';
 import TaskTable from './TaskTable';
 import BoardView from './BoardView';
 import TaskModal from './TaskModal';
@@ -42,6 +43,82 @@ function StatCard({ label, value, icon: Icon, colorClass, loading }: StatCardPro
   );
 }
 
+// ── Keyboard Shortcuts Modal ──────────────────────────────────────────────────
+function KeyboardShortcutsModal({ open, onClose }: { open: boolean; onClose: () => void }) {
+  const shortcuts = [
+    {
+      category: 'Navigation & Views',
+      items: [
+        { keys: ['1', 'or', 'T'], desc: 'Switch to Table View' },
+        { keys: ['2', 'or', 'B'], desc: 'Switch to Board (Kanban) View' },
+        { keys: ['/'], desc: 'Focus search bar' },
+        { keys: ['Esc'], desc: 'Close open dialogs or clear search' },
+      ],
+    },
+    {
+      category: 'Tasks & Sync',
+      items: [
+        { keys: ['C', 'or', 'N'], desc: 'Create a new task' },
+        { keys: ['R'], desc: 'Force reload from GitLab API' },
+        { keys: ['S'], desc: 'Trigger Cloud Backup & Sync' },
+        { keys: ['?'], desc: 'Toggle keyboard shortcuts help' },
+      ],
+    },
+  ];
+
+  return (
+    <Modal open={open} onClose={onClose} size="md" className="p-0 overflow-hidden">
+      <div className="flex items-center justify-between px-5 py-3.5 border-b border-[var(--border)] bg-[var(--surface-2)]/50">
+        <div className="flex items-center gap-2.5">
+          <div className="h-7 w-7 rounded-lg bg-[var(--accent-muted)] flex items-center justify-center text-[var(--accent)]">
+            <Keyboard className="h-4 w-4" />
+          </div>
+          <span className="text-sm font-semibold text-[var(--text-1)]">Keyboard Shortcuts</span>
+        </div>
+        <button
+          type="button"
+          onClick={onClose}
+          className="text-[var(--text-3)] hover:text-[var(--text-1)] p-1 rounded-md hover:bg-[var(--surface-3)] transition-colors cursor-pointer"
+        >
+          <X className="h-4 w-4" />
+        </button>
+      </div>
+
+      <div className="p-5 space-y-4 max-h-[70vh] overflow-y-auto">
+        {shortcuts.map((cat) => (
+          <div key={cat.category} className="space-y-2">
+            <p className="text-[10px] font-bold uppercase tracking-wider text-[var(--text-3)]">
+              {cat.category}
+            </p>
+            <div className="space-y-1.5">
+              {cat.items.map((item, i) => (
+                <div key={i} className="flex items-center justify-between text-xs py-1 px-2.5 rounded-lg bg-[var(--surface-2)]/40 border border-[var(--border)]/40">
+                  <span className="text-[var(--text-2)]">{item.desc}</span>
+                  <div className="flex items-center gap-1">
+                    {item.keys.map((k, j) => (
+                      <kbd
+                        key={j}
+                        className={cn(
+                          'px-1.5 py-0.5 rounded font-mono text-[10px] font-semibold border shadow-xs',
+                          k === 'or'
+                            ? 'border-transparent text-[var(--text-3)] bg-transparent shadow-none px-0.5'
+                            : 'border-[var(--border)] bg-[var(--surface)] text-[var(--text-1)]'
+                        )}
+                      >
+                        {k}
+                      </kbd>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
+    </Modal>
+  );
+}
+
 export interface DashboardProps {
   onSettings?: () => void;
 }
@@ -56,13 +133,16 @@ export default function Dashboard({ onSettings }: DashboardProps) {
     initializeData, refreshAll, globalLabels, appSettings, customStatuses,
     viewMode, setViewMode, updateAvailable, latestVersion, checkForUpdate,
     boardStatuses,
+    cloudSyncStatus, cloudSyncLastSynced, syncToCloud,
   } = useStore();
 
   const confirm = useConfirm();
   const [modalOpen, setModalOpen] = useState(false);
+  const [shortcutsOpen, setShortcutsOpen] = useState(false);
   const [editIssue, setEditIssue] = useState<any>(null);
   const [initialized, setInitialized] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
+  const searchInputRef = useRef<HTMLInputElement>(null);
 
   // Initial load — respects cache automatically
   useEffect(() => {
@@ -91,6 +171,66 @@ export default function Dashboard({ onSettings }: DashboardProps) {
     await refreshAll();
     setRefreshing(false);
   }, [confirm, refreshAll]);
+
+  // Global Keyboard Shortcuts listener
+  useEffect(() => {
+    function handleKeyDown(e: KeyboardEvent) {
+      const activeEl = document.activeElement;
+      const isInputActive = activeEl instanceof HTMLInputElement || activeEl instanceof HTMLTextAreaElement || (activeEl as HTMLElement)?.isContentEditable;
+
+      if (e.key === '?' && !isInputActive) {
+        e.preventDefault();
+        setShortcutsOpen((v) => !v);
+        return;
+      }
+
+      if (isInputActive) {
+        if (e.key === 'Escape') {
+          (activeEl as HTMLElement).blur();
+        }
+        return;
+      }
+
+      if (e.key === '/' && !e.ctrlKey && !e.metaKey) {
+        e.preventDefault();
+        searchInputRef.current?.focus();
+        return;
+      }
+
+      if (e.key === '1' || e.key === 't') {
+        e.preventDefault();
+        setViewMode('table');
+        return;
+      }
+
+      if (e.key === '2' || e.key === 'b') {
+        e.preventDefault();
+        setViewMode('board');
+        return;
+      }
+
+      if (e.key === 'c' || e.key === 'n') {
+        e.preventDefault();
+        handleCreate();
+        return;
+      }
+
+      if (e.key === 'r') {
+        e.preventDefault();
+        handleForceRefresh();
+        return;
+      }
+
+      if (e.key === 's') {
+        e.preventDefault();
+        syncToCloud();
+        return;
+      }
+    }
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [handleCreate, handleForceRefresh, syncToCloud, setViewMode]);
 
   // Aggregated stats
   // Aggregated stats (enabled projects only)
@@ -266,6 +406,35 @@ export default function Dashboard({ onSettings }: DashboardProps) {
             </div>
 
             <ThemeToggle />
+
+            {/* Cloud Backup Quick Sync */}
+            <button
+              type="button"
+              onClick={() => syncToCloud()}
+              disabled={cloudSyncStatus === 'syncing'}
+              title={
+                cloudSyncLastSynced
+                  ? `GitLab Cloud Backup: Last synced at ${new Date(cloudSyncLastSynced).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}. Click to sync now (S).`
+                  : 'GitLab Cloud Backup: Click to sync now (S).'
+              }
+              className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg border border-[var(--border)] bg-[var(--surface-2)] hover:border-[var(--border-hover)] hover:text-[var(--text-1)] text-[var(--text-2)] text-xs transition-colors cursor-pointer"
+            >
+              <RefreshCw className={cn('h-3.5 w-3.5', cloudSyncStatus === 'syncing' ? 'animate-spin text-[var(--accent)]' : cloudSyncStatus === 'error' ? 'text-red-500' : 'text-emerald-500')} />
+              <span className="hidden xl:inline text-[11px] font-medium">
+                {cloudSyncStatus === 'syncing' ? 'Syncing...' : 'Cloud Backup'}
+              </span>
+            </button>
+
+            {/* Shortcuts help button */}
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              onClick={() => setShortcutsOpen(true)}
+              title="Keyboard Shortcuts (?)"
+            >
+              <HelpCircle className="h-4 w-4" />
+            </Button>
+
             <Button
               variant="ghost" size="icon-sm"
               onClick={handleForceRefresh}
@@ -304,10 +473,11 @@ export default function Dashboard({ onSettings }: DashboardProps) {
         <div className="relative min-w-[180px] max-w-xs flex-1">
           <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-[var(--text-3)]" />
           <Input
+            ref={searchInputRef}
             id="filter-search"
             value={globalFilter}
             onChange={(e) => setGlobalFilter(e.target.value)}
-            placeholder="Search tasks, labels..."
+            placeholder="Search tasks, labels... (/)"
             className="pl-8 h-8 text-xs pr-7 bg-[var(--surface)] border-[var(--border)]"
           />
           {globalFilter && (
@@ -430,6 +600,7 @@ export default function Dashboard({ onSettings }: DashboardProps) {
       </div>
 
       <TaskModal open={modalOpen} onClose={handleClose} editIssue={editIssue} />
+      <KeyboardShortcutsModal open={shortcutsOpen} onClose={() => setShortcutsOpen(false)} />
     </div>
   );
 }
