@@ -1081,7 +1081,7 @@ const useStore = create<StoreState>((set, get) => ({
     set({ customStatuses: { ...map } });
     requestDebouncedSync();
 
-    const issue = issues.find((i) => i.project_id === projectId && i.iid === iid);
+    const issue = issues.find((i) => String(i.project_id) === String(projectId) && String(i.iid) === String(iid));
     if (!issue) return;
 
     if (newStatus === 'close') {
@@ -1089,7 +1089,7 @@ const useStore = create<StoreState>((set, get) => ({
         try {
           await closeIssue(instanceUrl, token, projectId, iid);
           const updated = issues.map((i) =>
-            i.project_id === projectId && i.iid === iid
+            String(i.project_id) === String(projectId) && String(i.iid) === String(iid)
               ? { ...i, state: 'closed', closed_at: new Date().toISOString() }
               : i
           );
@@ -1104,7 +1104,7 @@ const useStore = create<StoreState>((set, get) => ({
         try {
           await reopenIssue(instanceUrl, token, projectId, iid);
           const updated = issues.map((i) =>
-            i.project_id === projectId && i.iid === iid
+            String(i.project_id) === String(projectId) && String(i.iid) === String(iid)
               ? { ...i, state: 'opened', closed_at: null }
               : i
           );

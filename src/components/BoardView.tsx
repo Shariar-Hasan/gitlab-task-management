@@ -69,6 +69,10 @@ const TaskCard = React.memo(
     onEdit, globalLabels, visibleColumns, projectName
   }: TaskCardProps) {
     const cardRef = useRef<HTMLDivElement>(null);
+    const isDraggingRef = useRef(false);
+    const startPosRef = useRef<{ x: number; y: number } | null>(null);
+    const dragDistanceRef = useRef(0);
+
     const dueInfo = getDueInfo(issue.due_date);
     const assignees = issue.assignees || (issue.assignee ? [issue.assignee] : []);
     const labelNames = (issue.labels || []).map((l: any) => (typeof l === 'string' ? l : l?.name)).filter(Boolean);
@@ -80,24 +84,63 @@ const TaskCard = React.memo(
     const statusInfo = TASK_STATUSES.find((s) => s.id === status);
     const cardKey = `${issue.project_id}_${issue.iid}`;
 
+    const handleMouseDown = (e: React.MouseEvent) => {
+      startPosRef.current = { x: e.clientX, y: e.clientY };
+      isDraggingRef.current = false;
+      dragDistanceRef.current = 0;
+    };
+
+    const handleMouseMove = (e: React.MouseEvent) => {
+      if (startPosRef.current) {
+        const dx = Math.abs(e.clientX - startPosRef.current.x);
+        const dy = Math.abs(e.clientY - startPosRef.current.y);
+        dragDistanceRef.current = Math.max(dx, dy);
+      }
+    };
+
+    const handleCardClick = (e: React.MouseEvent) => {
+      if (isDraggingRef.current || dragDistanceRef.current > 5) {
+        e.preventDefault();
+        e.stopPropagation();
+        return;
+      }
+      onEdit(issue);
+    };
+
+    const handleDragStartInternal = (e: React.DragEvent) => {
+      isDraggingRef.current = true;
+      onDragStart(e, issue, status);
+    };
+
+    const handleDragEndInternal = (e: React.DragEvent) => {
+      onDragEnd(e);
+      setTimeout(() => {
+        isDraggingRef.current = false;
+        dragDistanceRef.current = 0;
+        startPosRef.current = null;
+      }, 150);
+    };
+
     return (
       <div
         ref={cardRef}
         data-task-card-key={cardKey}
-        draggable
-        onDragStart={(e) => onDragStart(e, issue, status)}
-        onDragEnd={onDragEnd}
+        draggable={true}
+        onMouseDown={handleMouseDown}
+        onMouseMove={handleMouseMove}
+        onDragStart={handleDragStartInternal}
+        onDragEnd={handleDragEndInternal}
+        onClick={handleCardClick}
         className={cn(
           'group relative p-3 rounded-xl border bg-[var(--surface)] shadow-xs select-none',
           'cursor-grab active:cursor-grabbing transition-all duration-150',
           'hover:border-[var(--accent)]/40 hover:shadow-md',
           isDragging
-            ? 'opacity-30 scale-95 border-[var(--accent)] pointer-events-none'
+            ? 'opacity-40 scale-95 border-[var(--accent)] shadow-none'
             : 'border-[var(--border)] hover:translate-y-[-1px]',
           dragOverPos === 'before' && '!border-t-[var(--accent)] shadow-md',
           dragOverPos === 'after' && '!border-b-[var(--accent)] shadow-md'
         )}
-        onClick={() => onEdit(issue)}
       >
         {/* Crisp illuminated drop indicator line */}
         {dragOverPos === 'before' && (
@@ -542,17 +585,27 @@ export default function BoardView({ onEdit }: BoardViewProps) {
   const handleDragStart = useCallback((e: React.DragEvent, issue: any, fromStatus: string) => {
     const key = `${issue.project_id}_${issue.iid}`;
     const dragData = { issue, fromStatus };
-    setDragging(dragData);
     draggingRef.current = dragData;
     e.dataTransfer.effectAllowed = 'move';
     e.dataTransfer.setData('text/plain', key);
+    try {
+      e.dataTransfer.setData('application/json', JSON.stringify(dragData));
+    } catch {}
+
+    // Allow native browser drag session to initialize before triggering React state update
+    requestAnimationFrame(() => {
+      setDragging(dragData);
+    });
   }, []);
 
   const handleDragEnd = useCallback(() => {
-    setDragging(null);
-    draggingRef.current = null;
-    setDragTarget(null);
-    setDragOverTarget(null);
+    // Keep draggingRef.current valid for a short window so any drop events in progress don't lose context
+    setTimeout(() => {
+      setDragging(null);
+      draggingRef.current = null;
+      setDragTarget(null);
+      setDragOverTarget(null);
+    }, 80);
   }, []);
 
   const handleColumnDragOver = useCallback((e: React.DragEvent, toStatus: string, containerEl: HTMLElement | null) => {
@@ -587,14 +640,53 @@ export default function BoardView({ onEdit }: BoardViewProps) {
     e.preventDefault();
     e.stopPropagation();
 
-    const currentDragging = draggingRef.current || dragging;
+    let currentDragging = draggingRef.current || dragging;
+    if (!currentDragging) {
+      try {
+        const json = e.dataTransfer.getData('application/json');
+        if (json) currentDragging = JSON.parse(json);
+      } catch {}
+    }
+    if (!currentDragging) {
+      const textKey = e.dataTransfer.getData('text/plain');
+      if (textKey) {
+        const found = filteredIssues.find((i) => `${i.project_id}_${i.iid}` === textKey);
+        if (found) {
+          const fromSt = getEffectiveStatus(found, customStatuses);
+          currentDragging = { issue: found, fromStatus: fromSt };
+        }
+      }
+    }
     if (!currentDragging) return;
 
     const { issue, fromStatus } = currentDragging;
     const draggedKey = `${issue.project_id}_${issue.iid}`;
 
     const tasks = columnTasks[toStatus] || [];
-    const placement = getColumnDropPlacement(containerEl, e.clientY, tasks, draggedKey);
+    let placement = getColumnDropPlacement(containerEl, e.clientY, tasks, draggedKey);
+
+    // If toStatus has 0 tasks, find adjacent column anchor so it sits properly in sequence
+    if (!placement.targetKey) {
+      const stIdx = visibleStatuses.findIndex((s) => s.id === toStatus);
+      for (let i = stIdx - 1; i >= 0; i--) {
+        const prevTasks = columnTasks[visibleStatuses[i].id] || [];
+        if (prevTasks.length > 0) {
+          const last = prevTasks[prevTasks.length - 1];
+          placement = { targetKey: `${last.project_id}_${last.iid}`, pos: 'after' };
+          break;
+        }
+      }
+      if (!placement.targetKey) {
+        for (let i = stIdx + 1; i < visibleStatuses.length; i++) {
+          const nextTasks = columnTasks[visibleStatuses[i].id] || [];
+          if (nextTasks.length > 0) {
+            const first = nextTasks[0];
+            placement = { targetKey: `${first.project_id}_${first.iid}`, pos: 'before' };
+            break;
+          }
+        }
+      }
+    }
 
     // Reset dragging UI indicators immediately
     setDragging(null);
@@ -605,8 +697,8 @@ export default function BoardView({ onEdit }: BoardViewProps) {
     const prevSeq = [...taskSequence];
     const isStatusChanged = fromStatus !== toStatus;
 
-    // Apply sequence reorder immediately
-    reorderTaskSequence(draggedKey, placement.targetKey, placement.pos, allVisibleKeys);
+    // Apply sequence reorder immediately with forceSeed=true to lock in exact visual order
+    reorderTaskSequence(draggedKey, placement.targetKey, placement.pos, allVisibleKeys, true);
 
     if (isStatusChanged) {
       setUpdatingStatus(toStatus);
@@ -656,7 +748,7 @@ export default function BoardView({ onEdit }: BoardViewProps) {
         }
       }
     }
-  }, [dragging, columnTasks, allVisibleKeys, setTaskStatus, boardStatuses, reorderTaskSequence, taskSequence, setTaskSequence, toast, appSettings?.undoPeriod]);
+  }, [dragging, columnTasks, allVisibleKeys, setTaskStatus, boardStatuses, reorderTaskSequence, taskSequence, setTaskSequence, toast, appSettings?.undoPeriod, filteredIssues, customStatuses, visibleStatuses]);
 
   const draggingId = dragging ? `${dragging.issue.project_id}_${dragging.issue.iid}` : null;
 
