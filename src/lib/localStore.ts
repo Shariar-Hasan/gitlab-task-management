@@ -166,6 +166,7 @@ export interface AppSettings {
   cloudSyncEnabled: boolean;
   cloudSyncFrequency: 'on_change' | '1h' | '1d';
   cloudSyncLastSynced: string | null;
+  cloudSyncRepoName?: string;
   [key: string]: any;
 }
 
@@ -187,9 +188,10 @@ export const DEFAULT_SETTINGS: AppSettings = {
   viewMode: 'table',          // 'table' | 'board'
   boardColumns: ['open', 'ongoing', 'testing', 'pending', 'backlog', 'close'],
   undoPeriod: 5,              // default 5s undo period on major changes
-  cloudSyncEnabled: true,     // default enabled for automatic backup
+  cloudSyncEnabled: false,    // by default off
   cloudSyncFrequency: 'on_change', // 'on_change' | '1h' | '1d'
   cloudSyncLastSynced: null,
+  cloudSyncRepoName: '',
 };
 
 // ── Accent Color Applicator ───────────────────────────────────────────────────
@@ -282,6 +284,9 @@ export const localStore = {
   getSettings: (): AppSettings => {
     const raw = get<Partial<AppSettings>>(KEYS.settings, {}) ?? {};
     const merged = { ...DEFAULT_SETTINGS, ...raw };
+    if (raw.cloudSyncEnabled === undefined) {
+      merged.cloudSyncEnabled = false;
+    }
     // Normalize defaultFilterStatus to array
     if ((merged.defaultFilterStatus as any) === 'all' || !merged.defaultFilterStatus) {
       merged.defaultFilterStatus = [];

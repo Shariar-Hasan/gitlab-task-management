@@ -141,13 +141,22 @@ export async function validateConnection(instanceUrl: string, token: string): Pr
 // ── Backup Project Prefix & Filter ─────────────────────────────────────────────
 export const BACKUP_PROJECT_PREFIX = 'gitlab-task-automation-backup-by-';
 
-export function isBackupProject(project: any): boolean {
+export function isBackupProject(project: any, customRepoName?: string): boolean {
   if (!project) return false;
   const name = String(project.name || '').toLowerCase();
   const path = String(project.path || '').toLowerCase();
   const pathWithNs = String(project.path_with_namespace || '').toLowerCase();
   const prefix = BACKUP_PROJECT_PREFIX.toLowerCase();
-  return name.startsWith(prefix) || path.startsWith(prefix) || pathWithNs.includes(prefix);
+  if (name.startsWith(prefix) || path.startsWith(prefix) || pathWithNs.includes(prefix)) {
+    return true;
+  }
+  if (customRepoName && customRepoName.trim()) {
+    const custom = customRepoName.trim().toLowerCase();
+    if (name === custom || path === custom || pathWithNs.endsWith(`/${custom}`)) {
+      return true;
+    }
+  }
+  return false;
 }
 
 // ── Projects ──────────────────────────────────────────────────────────────────
@@ -435,9 +444,13 @@ export function base64ToUtf8(b64: string): string {
 export async function getOrCreateBackupProject(
   instanceUrl: string,
   token: string,
-  currentUser: { id: string | number; username?: string }
+  currentUser: { id: string | number; username?: string },
+  customRepoName?: string
 ): Promise<any> {
-  const projectName = `${BACKUP_PROJECT_PREFIX}${currentUser.id}`;
+  const defaultName = `${BACKUP_PROJECT_PREFIX}${currentUser.id}`;
+  const projectName = (customRepoName && customRepoName.trim())
+    ? customRepoName.trim()
+    : defaultName;
 
   // 1. Search existing projects
   try {

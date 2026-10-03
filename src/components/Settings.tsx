@@ -10,6 +10,7 @@ import {
 } from 'lucide-react';
 import { Button, Input, Card, Badge, ThemeToggle, Switch } from './ui/index';
 import { useToast, Modal } from './ui/overlay';
+import CloudBackupModal from './CloudBackupModal';
 import useStore from '../store/useStore';
 import { cn, formatTime, getVisibleGlobalLabels } from '../lib/utils';
 import { localStore, TASK_STATUSES } from '../lib/localStore';
@@ -1985,16 +1986,34 @@ function CloudSyncSettings() {
   } = useStore();
   const toast = useToast();
   const [confirmRestoreOpen, setConfirmRestoreOpen] = useState(false);
+  const [enableModalOpen, setEnableModalOpen] = useState(false);
+  const [editingRepoName, setEditingRepoName] = useState(false);
+  const [customRepoInput, setCustomRepoInput] = useState('');
 
-  const enabled = appSettings?.cloudSyncEnabled !== false;
+  const enabled = appSettings?.cloudSyncEnabled === true;
   const frequency = appSettings?.cloudSyncFrequency || 'on_change';
-  const backupProjectName = currentUser?.id
+  const defaultProjectName = currentUser?.id
     ? `gitlab-task-automation-backup-by-${currentUser.id}`
     : 'gitlab-task-automation-backup-by-<userId>';
+  const repoName = appSettings?.cloudSyncRepoName || defaultProjectName;
 
   const handleToggle = (checked: boolean) => {
-    updateAppSettings({ cloudSyncEnabled: checked });
-    toast.info(checked ? 'Cloud backup enabled' : 'Cloud backup disabled');
+    if (checked) {
+      setEnableModalOpen(true);
+    } else {
+      updateAppSettings({ cloudSyncEnabled: false });
+      toast.info('Cloud backup disabled');
+    }
+  };
+
+  const handleConfirmEnable = async (chosenRepoName: string) => {
+    updateAppSettings({
+      cloudSyncEnabled: true,
+      cloudSyncRepoName: chosenRepoName,
+    });
+    setEnableModalOpen(false);
+    toast.success('Cloud backup enabled');
+    await syncToCloud({ customRepoName: chosenRepoName });
   };
 
   const handleFrequencyChange = (freq: 'on_change' | '1h' | '1d') => {
@@ -2050,13 +2069,58 @@ function CloudSyncSettings() {
           />
         </div>
 
-        {/* Repository Details */}
-        <div className="p-3 rounded-xl border border-[var(--border)] bg-[var(--surface-2)]/50 space-y-2">
-          <div className="flex items-center justify-between text-xs">
-            <span className="text-[var(--text-3)]">Backup Repository</span>
-            <span className="font-mono font-medium text-[var(--accent)] text-[11px] bg-[var(--accent-muted)]/40 px-2 py-0.5 rounded border border-[var(--accent)]/30">
-              {backupProjectName}
-            </span>
+        {/* Repository Details & Name Customization */}
+        <div className="p-3.5 rounded-xl border border-[var(--border)] bg-[var(--surface-2)]/50 space-y-2.5">
+          <div className="flex items-center justify-between text-xs gap-2">
+            <span className="text-[var(--text-3)] shrink-0">Backup Repository</span>
+            {editingRepoName ? (
+              <div className="flex items-center gap-1.5 flex-1 justify-end max-w-sm">
+                <input
+                  type="text"
+                  value={customRepoInput}
+                  onChange={(e) => setCustomRepoInput(e.target.value)}
+                  placeholder={defaultProjectName}
+                  className="px-2 py-0.5 rounded text-xs font-mono bg-[var(--surface)] border border-[var(--border)] text-[var(--text-1)] w-full focus:outline-none focus:border-[var(--accent)]"
+                />
+                <Button
+                  size="sm"
+                  className="h-6 px-2 text-[11px] shrink-0"
+                  onClick={() => {
+                    const trimmed = customRepoInput.trim();
+                    if (!trimmed) return;
+                    updateAppSettings({ cloudSyncRepoName: trimmed });
+                    setEditingRepoName(false);
+                    toast.success('Backup repository name updated');
+                  }}
+                >
+                  Save
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-6 px-1.5 text-[11px] shrink-0"
+                  onClick={() => setEditingRepoName(false)}
+                >
+                  Cancel
+                </Button>
+              </div>
+            ) : (
+              <div className="flex items-center gap-2 truncate">
+                <span className="font-mono font-medium text-[var(--accent)] text-[11px] bg-[var(--accent-muted)]/40 px-2 py-0.5 rounded border border-[var(--accent)]/30 truncate max-w-xs">
+                  {repoName}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setCustomRepoInput(appSettings?.cloudSyncRepoName || defaultProjectName);
+                    setEditingRepoName(true);
+                  }}
+                  className="text-[11px] text-[var(--text-3)] hover:text-[var(--text-1)] underline cursor-pointer shrink-0"
+                >
+                  Change
+                </button>
+              </div>
+            )}
           </div>
           <div className="flex items-center justify-between text-xs">
             <span className="text-[var(--text-3)]">File Path</span>
@@ -2185,7 +2249,7 @@ function CloudSyncSettings() {
           </div>
 
           <div className="p-3 rounded-lg border border-[var(--border)] bg-[var(--surface-2)] text-xs text-[var(--text-2)] leading-relaxed">
-            Your custom statuses, templates, global labels, and view configurations will be restored from <code className="font-mono text-[var(--accent)] font-semibold">{backupProjectName}</code>.
+            Your custom statuses, templates, global labels, and view configurations will be restored from <code className="font-mono text-[var(--accent)] font-semibold">{repoName}</code>.
           </div>
 
           <div className="flex justify-end gap-2 pt-2">
@@ -2198,6 +2262,16 @@ function CloudSyncSettings() {
           </div>
         </div>
       </Modal>
+
+      {/* Confirmation & Explanation Modal when enabling Cloud Backup */}
+      <CloudBackupModal
+        open={enableModalOpen}
+        onClose={() => setEnableModalOpen(false)}
+        onConfirm={handleConfirmEnable}
+        defaultRepoName={defaultProjectName}
+        currentRepoName={appSettings?.cloudSyncRepoName || defaultProjectName}
+        loading={cloudSyncStatus === 'syncing'}
+      />
     </div>
   );
 }

@@ -30,8 +30,8 @@ export interface StoreState {
   cloudSyncStatus: 'idle' | 'syncing' | 'error' | 'success';
   cloudSyncError: string | null;
   cloudSyncLastSynced: string | null;
-  syncToCloud: (options?: { silent?: boolean }) => Promise<{ success: boolean; error?: string }>;
-  restoreFromCloud: () => Promise<{ success: boolean; error?: string }>;
+  syncToCloud: (options?: { silent?: boolean; customRepoName?: string }) => Promise<{ success: boolean; error?: string }>;
+  restoreFromCloud: (options?: { customRepoName?: string }) => Promise<{ success: boolean; error?: string }>;
   triggerAutoSync: () => void;
 
   // Project Overrides
@@ -235,14 +235,15 @@ const useStore = create<StoreState>((set, get) => ({
   cloudSyncError: null,
   cloudSyncLastSynced: localStore.getSettings().cloudSyncLastSynced || null,
 
-  async syncToCloud(options?: { silent?: boolean }) {
-    const { instanceUrl, token, currentUser, isAuthenticated } = get();
+  async syncToCloud(options?: { silent?: boolean; customRepoName?: string }) {
+    const { instanceUrl, token, currentUser, isAuthenticated, appSettings } = get();
     if (!isAuthenticated || !token || !currentUser?.id) {
       return { success: false, error: 'User is not authenticated with GitLab' };
     }
     set({ cloudSyncStatus: 'syncing', cloudSyncError: null });
     try {
-      const backupProject = await getOrCreateBackupProject(instanceUrl, token, currentUser);
+      const repoName = options?.customRepoName || appSettings.cloudSyncRepoName;
+      const backupProject = await getOrCreateBackupProject(instanceUrl, token, currentUser, repoName);
       const backupData = localStore.exportDataForBackup();
       await saveBackupFile(
         instanceUrl,
@@ -252,7 +253,10 @@ const useStore = create<StoreState>((set, get) => ({
         backupData
       );
       const nowIso = new Date().toISOString();
-      const updatedSettings = localStore.updateSettings({ cloudSyncLastSynced: nowIso });
+      const updatedSettings = localStore.updateSettings({
+        cloudSyncLastSynced: nowIso,
+        ...(repoName ? { cloudSyncRepoName: repoName } : {}),
+      });
       set({
         cloudSyncStatus: 'success',
         cloudSyncError: null,
@@ -272,14 +276,15 @@ const useStore = create<StoreState>((set, get) => ({
     }
   },
 
-  async restoreFromCloud() {
-    const { instanceUrl, token, currentUser, isAuthenticated } = get();
+  async restoreFromCloud(options?: { customRepoName?: string }) {
+    const { instanceUrl, token, currentUser, isAuthenticated, appSettings } = get();
     if (!isAuthenticated || !token || !currentUser?.id) {
       return { success: false, error: 'User is not authenticated with GitLab' };
     }
     set({ cloudSyncStatus: 'syncing', cloudSyncError: null });
     try {
-      const backupProject = await getOrCreateBackupProject(instanceUrl, token, currentUser);
+      const repoName = options?.customRepoName || appSettings.cloudSyncRepoName;
+      const backupProject = await getOrCreateBackupProject(instanceUrl, token, currentUser, repoName);
       const backupData = await loadBackupFile(
         instanceUrl,
         token,
@@ -459,11 +464,12 @@ const useStore = create<StoreState>((set, get) => ({
   projectsError: null,
 
   async fetchProjects({ force = false } = {}): Promise<any[]> {
-    const { instanceUrl, token } = get();
+    const { instanceUrl, token, appSettings } = get();
     set({ projectsLoading: true, projectsError: null });
     try {
       const all = await fetchAllProjects(instanceUrl, token, { force });
-      const projects = (all || []).filter((p) => !isBackupProject(p));
+      const repoName = appSettings.cloudSyncRepoName;
+      const projects = (all || []).filter((p) => !isBackupProject(p, repoName));
       localStore.setProjects(projects);
       set({ projects, projectsLoading: false });
       return projects;
@@ -496,7 +502,8 @@ const useStore = create<StoreState>((set, get) => ({
    * - If localStorage is empty (first ever load) → fetch from API
    */
   async initializeData() {
-    const cachedProjects = localStore.getProjects().filter((p) => !isBackupProject(p));
+    const repoName = localStore.getSettings().cloudSyncRepoName;
+    const cachedProjects = localStore.getProjects().filter((p) => !isBackupProject(p, repoName));
     const rawIssues      = localStore.getIssues();
     const hasData        = localStore.hasEverFetched();
 

@@ -10,11 +10,13 @@ import {
   ThemeToggle, CacheStatus, FilterSelect,
 } from './ui/index';
 import { Modal, DropdownMenu, DropdownItem, DropdownSeparator } from './ui/overlay';
+import { toast } from 'sonner';
 import TaskTable from './TaskTable';
 import BoardView from './BoardView';
 import TaskModal from './TaskModal';
 import CommandPalette from './CommandPalette';
 import StandupInsightsModal from './StandupInsightsModal';
+import CloudBackupModal from './CloudBackupModal';
 import useStore from '../store/useStore';
 import { cn } from '../lib/utils';
 import { TASK_STATUSES, getEffectiveStatus } from '../lib/localStore';
@@ -133,7 +135,7 @@ export default function Dashboard({ onSettings }: DashboardProps) {
     loadingProgress, currentUser, lastFetchedAt,
     globalFilter, filterProjects, filterStatus, filterLabels, assignedToMe,
     setGlobalFilter, setFilterProjects, setFilterStatus, setFilterLabels, setAssignedToMe,
-    initializeData, refreshAll, globalLabels, appSettings, customStatuses,
+    initializeData, refreshAll, globalLabels, appSettings, updateAppSettings, customStatuses,
     viewMode, setViewMode, updateAvailable, latestVersion, checkForUpdate,
     boardStatuses,
     cloudSyncStatus, cloudSyncLastSynced, syncToCloud,
@@ -145,6 +147,7 @@ export default function Dashboard({ onSettings }: DashboardProps) {
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
   const [standupOpen, setStandupOpen] = useState(false);
+  const [enableBackupModalOpen, setEnableBackupModalOpen] = useState(false);
   const [editIssue, setEditIssue] = useState<any>(null);
   const [initialized, setInitialized] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
@@ -177,6 +180,24 @@ export default function Dashboard({ onSettings }: DashboardProps) {
     await refreshAll();
     setRefreshing(false);
   }, [confirm, refreshAll]);
+
+  const handleCloudSyncClick = useCallback(() => {
+    if (!appSettings?.cloudSyncEnabled) {
+      setEnableBackupModalOpen(true);
+    } else {
+      syncToCloud();
+    }
+  }, [appSettings?.cloudSyncEnabled, syncToCloud]);
+
+  const handleConfirmEnableBackup = useCallback(async (chosenRepoName: string) => {
+    updateAppSettings({
+      cloudSyncEnabled: true,
+      cloudSyncRepoName: chosenRepoName,
+    });
+    setEnableBackupModalOpen(false);
+    toast.success('Cloud backup enabled');
+    await syncToCloud({ customRepoName: chosenRepoName });
+  }, [updateAppSettings, syncToCloud]);
 
   // Global Keyboard Shortcuts listener
   useEffect(() => {
@@ -236,14 +257,14 @@ export default function Dashboard({ onSettings }: DashboardProps) {
 
       if (e.key === 's') {
         e.preventDefault();
-        syncToCloud();
+        handleCloudSyncClick();
         return;
       }
     }
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [handleCreate, handleForceRefresh, syncToCloud, setViewMode]);
+  }, [handleCreate, handleForceRefresh, handleCloudSyncClick, setViewMode]);
 
   // Aggregated stats
   // Aggregated stats (enabled projects only)
@@ -454,7 +475,7 @@ export default function Dashboard({ onSettings }: DashboardProps) {
               </DropdownItem>
               <DropdownItem
                 icon={ShieldCheck}
-                onClick={() => syncToCloud()}
+                onClick={handleCloudSyncClick}
                 disabled={cloudSyncStatus === 'syncing'}
                 shortcut="S"
               >
@@ -649,7 +670,7 @@ export default function Dashboard({ onSettings }: DashboardProps) {
         onOpenSettings={onSettings || (() => {})}
         onOpenStandup={() => setStandupOpen(true)}
         onForceRefresh={handleForceRefresh}
-        onCloudSync={syncToCloud}
+        onCloudSync={handleCloudSyncClick}
         onToggleTheme={() => setTheme(theme === 'dark' ? 'light' : 'dark')}
         onFilterProject={(pid) => setFilterProjects([pid])}
         onFilterStatus={(sid) => setFilterStatus([sid])}
@@ -667,6 +688,20 @@ export default function Dashboard({ onSettings }: DashboardProps) {
         boardStatuses={boardStatuses?.length ? boardStatuses : TASK_STATUSES}
         currentUser={currentUser}
         onSelectTask={handleEdit}
+      />
+
+      {/* ── Cloud Backup Confirmation Modal ──────────────────────────────────── */}
+      <CloudBackupModal
+        open={enableBackupModalOpen}
+        onClose={() => setEnableBackupModalOpen(false)}
+        onConfirm={handleConfirmEnableBackup}
+        defaultRepoName={
+          currentUser?.id
+            ? `gitlab-task-automation-backup-by-${currentUser.id}`
+            : 'gitlab-task-automation-backup-by-<userId>'
+        }
+        currentRepoName={appSettings?.cloudSyncRepoName}
+        loading={cloudSyncStatus === 'syncing'}
       />
     </div>
   );
