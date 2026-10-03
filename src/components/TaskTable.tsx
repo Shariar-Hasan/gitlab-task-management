@@ -1693,7 +1693,17 @@ export default function TaskTable({ onEdit }: TaskTableProps) {
         return (
           <div className="flex items-center justify-end">
             <DropdownMenu
-              trigger={<Button variant="ghost" size="icon-sm" className="opacity-0 group-hover:opacity-100" onClick={(e: React.MouseEvent) => e.stopPropagation()}><MoreHorizontal className="h-4 w-4" /></Button>}
+              trigger={
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon-sm"
+                  className="opacity-0 group-hover:opacity-100 hover:opacity-100 cursor-pointer"
+                  title="Task actions"
+                >
+                  <MoreHorizontal className="h-4 w-4" />
+                </Button>
+              }
               align="right"
             >
               <DropdownItem icon={Edit2} onClick={() => onEdit?.(issue)}>Edit Task</DropdownItem>
