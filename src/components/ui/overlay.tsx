@@ -119,7 +119,7 @@ export const DropdownMenu = ({ trigger, children, align = 'right', className, wi
 
   return (
     <div className="relative inline-flex" ref={triggerRef}>
-      <div onClick={() => setOpen((v) => !v)}>{trigger}</div>
+      <div onClick={(e) => { e.stopPropagation(); setOpen((v) => !v); }}>{trigger}</div>
       {open && createPortal(
         <>
           <div className="fixed inset-0 z-[9990]" onMouseDown={() => setOpen(false)} />

@@ -303,7 +303,11 @@ function InlineAssignee({ issue, onUpdate }: { issue: any; onUpdate: (payload: a
     <>
       <button
         ref={ref}
-        onClick={() => setOpen(true)}
+        type="button"
+        onClick={(e) => {
+          e.stopPropagation();
+          setOpen(true);
+        }}
         className="flex items-center -space-x-1.5 hover:opacity-80 transition-opacity group cursor-pointer"
         title="Click to edit assignees"
       >
@@ -457,7 +461,10 @@ function InlineLabel({ issue }: { issue: any }) {
       <button
         ref={ref}
         type="button"
-        onClick={() => setOpen(true)}
+        onClick={(e) => {
+          e.stopPropagation();
+          setOpen(true);
+        }}
         className="flex items-center gap-1 flex-wrap min-h-[24px] group text-left cursor-pointer"
         title="Manage global labels"
       >
@@ -645,11 +652,16 @@ function InlineTitle({ value, onSave }: { value: string; onSave: (val: string) =
   }, [editing, commit]);
 
   if (editing) return (
-    <div ref={containerRef} className="flex items-center gap-1 -mx-1">
+    <div
+      ref={containerRef}
+      onClick={(e) => e.stopPropagation()}
+      className="flex items-center gap-1 -mx-1"
+    >
       <input
         ref={inputRef}
         value={draft}
         onChange={(e) => setDraft(e.target.value)}
+        onClick={(e) => e.stopPropagation()}
         onKeyDown={(e) => {
           if (e.key === 'Enter') commit();
           if (e.key === 'Escape') cancel();
@@ -657,14 +669,22 @@ function InlineTitle({ value, onSave }: { value: string; onSave: (val: string) =
         className="flex-1 h-7 px-2 rounded-md border border-[var(--accent)]/50 bg-[var(--surface)] text-xs text-[var(--text-1)] focus:outline-none focus:border-[var(--accent)]"
       />
       <button
-        onClick={commit}
+        type="button"
+        onClick={(e) => {
+          e.stopPropagation();
+          commit();
+        }}
         title="Save"
         className="h-7 w-7 rounded-md flex items-center justify-center bg-[var(--accent-muted)] text-[var(--accent)] hover:bg-[var(--accent)]/25 cursor-pointer"
       >
         <Check className="h-3.5 w-3.5" />
       </button>
       <button
-        onClick={cancel}
+        type="button"
+        onClick={(e) => {
+          e.stopPropagation();
+          cancel();
+        }}
         title="Cancel"
         className="h-7 w-7 rounded-md flex items-center justify-center hover:bg-[var(--surface-2)] text-[var(--text-3)] cursor-pointer"
       >
@@ -676,7 +696,10 @@ function InlineTitle({ value, onSave }: { value: string; onSave: (val: string) =
   return (
     <div
       className="group flex items-center gap-1.5 cursor-pointer"
-      onClick={() => setEditing(true)}
+      onClick={(e) => {
+        e.stopPropagation();
+        setEditing(true);
+      }}
       title={value}
     >
       <span className="text-sm text-[var(--text-1)] leading-tight line-clamp-2 flex-1" title={value}>{value}</span>
@@ -744,7 +767,10 @@ function StatusCell({ issue }: { issue: any }) {
       <button
         ref={ref}
         type="button"
-        onClick={() => setOpen(true)}
+        onClick={(e) => {
+          e.stopPropagation();
+          setOpen(true);
+        }}
         disabled={loading}
         className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium border transition-all duration-200 hover:scale-105 active:scale-95 animate-status-chip select-none cursor-pointer shadow-xs"
         style={{
@@ -1252,12 +1278,13 @@ interface TaskTableRowProps {
   onDragOver?: (e: React.DragEvent, row: Row<any>) => void;
   onDragLeave?: (e: React.DragEvent, row: Row<any>) => void;
   onDrop?: (e: React.DragEvent, row: Row<any>) => void;
+  onEdit?: (issue: any) => void;
 }
 
 const TaskTableRow = React.memo(
   function TaskTableRow({
     row, isSelected, columnVisibility, isPinned, compact, isDragging, dragOverPos,
-    onDragStart, onDragEnd, onDragOver, onDragLeave, onDrop
+    onDragStart, onDragEnd, onDragOver, onDragLeave, onDrop, onEdit
   }: TaskTableRowProps) {
     return (
       <tr
@@ -1270,10 +1297,10 @@ const TaskTableRow = React.memo(
         onDrop={(e) => onDrop?.(e, row)}
         onClick={(e) => {
           const target = e.target as HTMLElement;
-          if (target.closest('button, input, a, [role="menuitem"], [role="button"], span[draggable]')) {
+          if (target.closest('button, input, a, [role="menuitem"], [role="button"], span[draggable], [data-no-row-click]')) {
             return;
           }
-          row.toggleSelected();
+          onEdit?.(row.original);
         }}
         className={cn(
           'group border-b border-[var(--border)] hover:bg-[var(--surface)] transition-all duration-150 theme-transition relative cursor-pointer',
@@ -1524,6 +1551,7 @@ export default function TaskTable({ onEdit }: TaskTableProps) {
               className="h-4 w-4 rounded accent-[var(--accent)] cursor-pointer shrink-0"
               checked={row.getIsSelected()}
               onChange={(e) => row.toggleSelected(e.target.checked)}
+              onClick={(e) => e.stopPropagation()}
               title="Select task"
             />
             <span
@@ -1665,7 +1693,7 @@ export default function TaskTable({ onEdit }: TaskTableProps) {
         return (
           <div className="flex items-center justify-end">
             <DropdownMenu
-              trigger={<Button variant="ghost" size="icon-sm" className="opacity-0 group-hover:opacity-100"><MoreHorizontal className="h-4 w-4" /></Button>}
+              trigger={<Button variant="ghost" size="icon-sm" className="opacity-0 group-hover:opacity-100" onClick={(e: React.MouseEvent) => e.stopPropagation()}><MoreHorizontal className="h-4 w-4" /></Button>}
               align="right"
             >
               <DropdownItem icon={Edit2} onClick={() => onEdit?.(issue)}>Edit Task</DropdownItem>
@@ -2041,6 +2069,7 @@ export default function TaskTable({ onEdit }: TaskTableProps) {
                     onDragOver={handleRowDragOver}
                     onDragLeave={handleRowDragLeave}
                     onDrop={handleRowDrop}
+                    onEdit={onEdit}
                   />
                 );
               })
