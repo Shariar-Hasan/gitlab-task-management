@@ -141,6 +141,10 @@ export interface StoreState {
   // Version Check
   latestVersion: string | null;
   updateAvailable: boolean;
+  updateDownloadUrl: string | null;
+  updateReleaseUrl: string | null;
+  updateDismissed: boolean;
+  dismissUpdate: () => void;
   checkForUpdate: (options?: { force?: boolean }) => Promise<void>;
 
   // UI State
@@ -159,6 +163,17 @@ export interface StoreState {
   assignedToMe: boolean;
   setAssignedToMe: (v: boolean) => void;
   _persistFilters: (patch: Record<string, any>) => void;
+}
+
+// Helper: compare semver strings
+function isNewerVersion(latest: string | null, current: string | null): boolean {
+  if (!latest || !current) return false;
+  const parse = (v: string) => v.replace(/^v/, '').split('.').map(Number);
+  const [lMaj, lMin, lPatch] = parse(latest);
+  const [cMaj, cMin, cPatch] = parse(current);
+  if (lMaj !== cMaj) return lMaj > cMaj;
+  if (lMin !== cMin) return lMin > cMin;
+  return (lPatch || 0) > (cPatch || 0);
 }
 
 // Map of pending deletions for grace-period undo: key -> { timer, issue }
@@ -1129,7 +1144,26 @@ const useStore = create<StoreState>((set, get) => ({
 
   // ── Version Check ──────────────────────────────────────────────────────────
   latestVersion: localStore.getLatestVersion(),
-  updateAvailable: false,
+  updateAvailable: (() => {
+    const latest = localStore.getLatestVersion();
+    const currentVersion = (typeof chrome !== 'undefined' && chrome.runtime?.getManifest?.()?.version) || '1.1.0';
+    return isNewerVersion(latest, currentVersion);
+  })(),
+  updateDownloadUrl: localStore.getUpdateDownloadUrl(),
+  updateReleaseUrl: localStore.getUpdateReleaseUrl(),
+  updateDismissed: (() => {
+    const latest = localStore.getLatestVersion();
+    const dismissed = localStore.getDismissedUpdateVersion();
+    return Boolean(latest && dismissed && latest === dismissed);
+  })(),
+
+  dismissUpdate: () => {
+    const { latestVersion } = get();
+    if (latestVersion) {
+      localStore.setDismissedUpdateVersion(latestVersion);
+    }
+    set({ updateDismissed: true });
+  },
 
   async checkForUpdate(options: { force?: boolean } = {}): Promise<void> {
     const { appSettings } = get();
@@ -1137,7 +1171,7 @@ const useStore = create<StoreState>((set, get) => ({
     const lastCheck = localStore.getLastUpdateCheck();
     const hours = appSettings.updateCheckHours || 4;
     const msThreshold = hours * 60 * 60 * 1000;
-    const currentVersion = '1.1.0'; // from manifest
+    const currentVersion = (typeof chrome !== 'undefined' && chrome.runtime?.getManifest?.()?.version) || '1.1.0';
 
     // 1. Check if background service worker stored an update result
     if (typeof chrome !== 'undefined' && chrome?.storage?.local) {
@@ -1145,9 +1179,17 @@ const useStore = create<StoreState>((set, get) => ({
         const stored = await chrome.storage.local.get('extension_update_info');
         if (stored?.extension_update_info) {
           const info = stored.extension_update_info;
+          const isNewer = Boolean(info.updateAvailable) || isNewerVersion(info.latestVersion, currentVersion);
+          const dismissed = localStore.getDismissedUpdateVersion();
+          localStore.setLatestVersion(info.latestVersion);
+          if (info.downloadUrl) localStore.setUpdateDownloadUrl(info.downloadUrl);
+          if (info.releaseUrl) localStore.setUpdateReleaseUrl(info.releaseUrl);
           set({
             latestVersion: info.latestVersion,
-            updateAvailable: Boolean(info.updateAvailable),
+            updateAvailable: isNewer,
+            updateDownloadUrl: info.downloadUrl || null,
+            updateReleaseUrl: info.releaseUrl || null,
+            updateDismissed: Boolean(info.latestVersion && dismissed && info.latestVersion === dismissed),
           });
           if (!options.force) return;
         }
@@ -1159,7 +1201,14 @@ const useStore = create<StoreState>((set, get) => ({
       const latest = localStore.getLatestVersion();
       if (latest) {
         const updateAvailable = isNewerVersion(latest, currentVersion);
-        set({ latestVersion: latest, updateAvailable });
+        const dismissed = localStore.getDismissedUpdateVersion();
+        set({
+          latestVersion: latest,
+          updateAvailable,
+          updateDownloadUrl: localStore.getUpdateDownloadUrl(),
+          updateReleaseUrl: localStore.getUpdateReleaseUrl(),
+          updateDismissed: Boolean(latest && dismissed && latest === dismissed),
+        });
       }
       return;
     }
@@ -1172,9 +1221,25 @@ const useStore = create<StoreState>((set, get) => ({
       const data = await res.json();
       const tag = (data.tag_name || '').replace(/^v/, '');
       const updateAvailable = isNewerVersion(tag, currentVersion);
+      const zipAsset = data.assets?.find((a: any) =>
+        a.name?.toLowerCase().endsWith('.zip') || a.browser_download_url?.toLowerCase().endsWith('.zip')
+      ) || data.assets?.[0];
+      const downloadUrl = zipAsset?.browser_download_url || `https://github.com/${repo}/releases/latest`;
+      const releaseUrl = data.html_url || `https://github.com/${repo}/releases/latest`;
+
       localStore.setLatestVersion(tag);
+      localStore.setUpdateDownloadUrl(downloadUrl);
+      localStore.setUpdateReleaseUrl(releaseUrl);
       localStore.setLastUpdateCheck();
-      set({ latestVersion: tag, updateAvailable });
+
+      const dismissed = localStore.getDismissedUpdateVersion();
+      set({
+        latestVersion: tag,
+        updateAvailable,
+        updateDownloadUrl: downloadUrl,
+        updateReleaseUrl: releaseUrl,
+        updateDismissed: Boolean(tag && dismissed && tag === dismissed),
+      });
     } catch (e) {
       console.warn('Version check failed:', e);
     }
@@ -1236,16 +1301,5 @@ const useStore = create<StoreState>((set, get) => ({
     localStore.setActiveFilters({ ...current, ...patch });
   },
 }));
-
-// Helper: compare semver strings
-function isNewerVersion(latest: string, current: string): boolean {
-  if (!latest || !current) return false;
-  const parse = (v: string) => v.replace(/^v/, '').split('.').map(Number);
-  const [lMaj, lMin, lPatch] = parse(latest);
-  const [cMaj, cMin, cPatch] = parse(current);
-  if (lMaj !== cMaj) return lMaj > cMaj;
-  if (lMin !== cMin) return lMin > cMin;
-  return (lPatch || 0) > (cPatch || 0);
-}
 
 export default useStore;

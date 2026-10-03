@@ -1783,7 +1783,7 @@ function TemplatesSettings() {
 
 // ── Version & Updates Settings ───────────────────────────────────────────────
 function UpdatesSettings() {
-  const { appSettings, updateAppSettings, latestVersion, updateAvailable, checkForUpdate } = useStore();
+  const { appSettings, updateAppSettings, latestVersion, updateAvailable, updateDownloadUrl, checkForUpdate } = useStore();
   const toast = useToast();
   const [checking, setChecking] = useState(false);
 
@@ -1890,7 +1890,7 @@ function UpdatesSettings() {
               Download and unpack the latest release to update
             </span>
             <a
-              href={`https://github.com/${repo}/releases/latest`}
+              href={updateDownloadUrl || `https://github.com/${repo}/releases/latest`}
               target="_blank"
               rel="noreferrer"
               className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-amber-500 text-black text-xs font-semibold hover:bg-amber-400 transition-colors shadow-sm"

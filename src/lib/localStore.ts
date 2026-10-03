@@ -19,6 +19,9 @@ const KEYS = {
   activeFilters:    `${PREFIX}active_filters`,      // persisted active filters
   lastUpdateCheck:  `${PREFIX}last_update_check`,   // timestamp
   latestVersion:    `${PREFIX}latest_version`,      // latest release version string
+  updateDownloadUrl: `${PREFIX}update_download_url`, // direct download asset URL
+  updateReleaseUrl:  `${PREFIX}update_release_url`,  // release notes URL
+  dismissedUpdateVersion: `${PREFIX}dismissed_update_version`, // dismissed update tag
   boardStatuses:        `${PREFIX}board_statuses`,      // board view statuses configuration
   taskSequence:         `${PREFIX}task_sequence`,       // manual task sequence order string[]
   tableVisibleColumns:  `${PREFIX}table_visible_columns`,
@@ -363,6 +366,12 @@ export const localStore = {
   setLastUpdateCheck: (ts: number = Date.now()) => set(KEYS.lastUpdateCheck, ts),
   getLatestVersion: (): string | null => get(KEYS.latestVersion, null),
   setLatestVersion: (v: string | null) => set(KEYS.latestVersion, v),
+  getUpdateDownloadUrl: (): string | null => get(KEYS.updateDownloadUrl, null),
+  setUpdateDownloadUrl: (v: string | null) => set(KEYS.updateDownloadUrl, v),
+  getUpdateReleaseUrl: (): string | null => get(KEYS.updateReleaseUrl, null),
+  setUpdateReleaseUrl: (v: string | null) => set(KEYS.updateReleaseUrl, v),
+  getDismissedUpdateVersion: (): string | null => get(KEYS.dismissedUpdateVersion, null),
+  setDismissedUpdateVersion: (v: string | null) => set(KEYS.dismissedUpdateVersion, v),
 
   // ── Board View Statuses ───────────────────────────────────────────────────
   getBoardStatuses(): BoardStatusConfig[] {

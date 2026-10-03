@@ -2,7 +2,7 @@ import React, { useEffect, useState, useMemo, useCallback, useRef } from 'react'
 import {
   GitBranch, Search, Plus, Filter, RefreshCw, Settings,
   AlertCircle, X, BarChart3, CheckCircle2, Clock, Circle,
-  FolderGit2, CircleDot, Tag, User, Bell,
+  FolderGit2, CircleDot, Tag, User, Bell, Download, Sparkles,
   ExternalLink, Keyboard, HelpCircle, MoreVertical, FileText, ShieldCheck,
 } from 'lucide-react';
 import {
@@ -136,7 +136,7 @@ export default function Dashboard({ onSettings }: DashboardProps) {
     globalFilter, filterProjects, filterStatus, filterLabels, assignedToMe,
     setGlobalFilter, setFilterProjects, setFilterStatus, setFilterLabels, setAssignedToMe,
     initializeData, refreshAll, globalLabels, appSettings, updateAppSettings, customStatuses,
-    viewMode, setViewMode, updateAvailable, latestVersion, checkForUpdate,
+    viewMode, setViewMode, updateAvailable, latestVersion, updateDownloadUrl, updateReleaseUrl, updateDismissed, dismissUpdate, checkForUpdate,
     boardStatuses,
     cloudSyncStatus, cloudSyncLastSynced, syncToCloud,
     theme, setTheme,
@@ -379,21 +379,61 @@ export default function Dashboard({ onSettings }: DashboardProps) {
 
   return (
     <div className="flex flex-col h-full bg-[var(--bg)] theme-transition">
-      {/* ── Update Banner ───────────────────────────────────────────────────── */}
-      {updateAvailable && (
-        <div className="shrink-0 flex items-center gap-2 px-5 py-2 bg-[var(--accent-muted)] border-b border-[var(--accent)]/30 animate-fade-in">
-          <Bell className="h-3.5 w-3.5 text-[var(--accent)] shrink-0" />
-          <span className="text-xs text-[var(--text-1)] flex-1">
-            <strong>Update available!</strong> Version {latestVersion} is out.
-          </span>
-          <a
-            href={`https://github.com/${appSettings?.githubRepo || 'Shariar-Hasan/gitlab-task-management'}/releases/latest`}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="flex items-center gap-1 text-xs text-[var(--accent)] hover:underline font-medium"
-          >
-            View Release <ExternalLink className="h-3 w-3" />
-          </a>
+      {/* ── Update Alert Banner (Top of Home Page) ────────────────────────── */}
+      {updateAvailable && !updateDismissed && (
+        <div className="shrink-0 flex items-center justify-between gap-3 px-5 py-2.5 bg-gradient-to-r from-amber-500/15 via-amber-500/10 to-amber-500/5 border-b border-amber-500/30 text-[var(--text-1)] animate-fade-in relative z-20">
+          <div className="flex items-center gap-2.5 min-w-0 flex-1">
+            <span className="flex h-6 w-6 items-center justify-center rounded-lg bg-amber-500/20 text-amber-500 shrink-0 shadow-xs">
+              <Sparkles className="h-3.5 w-3.5 animate-pulse" />
+            </span>
+            <div className="flex items-center gap-2 flex-wrap min-w-0">
+              <span className="text-xs font-semibold text-[var(--text-1)]">
+                New Update Available!
+              </span>
+              <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-mono font-bold bg-amber-500/20 text-amber-600 dark:text-amber-400 border border-amber-500/30">
+                v{latestVersion}
+              </span>
+              <span className="text-xs text-[var(--text-3)] hidden sm:inline">
+                A newer version of GitLab Task Manager is available.
+              </span>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2 shrink-0">
+            {/* Download Link Button */}
+            <a
+              href={updateDownloadUrl || `https://github.com/${appSettings?.githubRepo || 'Shariar-Hasan/gitlab-task-management'}/releases/latest`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1.5 px-3 py-1 rounded-lg bg-amber-500 text-black text-xs font-semibold hover:bg-amber-400 transition-all duration-150 shadow-sm hover:shadow hover:scale-[1.02] active:scale-[0.98] cursor-pointer"
+              title={`Download GitLab Task Manager v${latestVersion}`}
+            >
+              <Download className="h-3.5 w-3.5" />
+              <span>Download v{latestVersion}</span>
+            </a>
+
+            {/* View Release Notes Link */}
+            <a
+              href={updateReleaseUrl || `https://github.com/${appSettings?.githubRepo || 'Shariar-Hasan/gitlab-task-management'}/releases/latest`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="hidden md:inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-medium text-[var(--text-2)] hover:text-[var(--text-1)] hover:bg-[var(--surface-2)] transition-colors cursor-pointer"
+              title="View Release Notes on GitHub"
+            >
+              <span>Release Notes</span>
+              <ExternalLink className="h-3 w-3 opacity-70" />
+            </a>
+
+            {/* Dismiss Button */}
+            <button
+              type="button"
+              onClick={dismissUpdate}
+              className="p-1 rounded-md text-[var(--text-3)] hover:text-[var(--text-1)] hover:bg-amber-500/15 transition-colors cursor-pointer ml-0.5"
+              title="Dismiss notification"
+            >
+              <X className="h-3.5 w-3.5" />
+            </button>
+          </div>
         </div>
       )}
 

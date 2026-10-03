@@ -41,11 +41,15 @@ async function performUpdateCheck() {
     const latestVersion = (release.tag_name || '').replace(/^v/, '');
     const updateAvailable = compareVersions(latestVersion, currentVersion);
 
+    const zipAsset = release.assets?.find((a) => a.name?.toLowerCase().endsWith('.zip') || a.browser_download_url?.toLowerCase().endsWith('.zip')) || release.assets?.[0];
+    const downloadUrl = zipAsset?.browser_download_url || `https://github.com/${GITHUB_REPO}/releases/latest`;
+
     const updateInfo = {
       updateAvailable,
       latestVersion,
       currentVersion,
       releaseUrl: release.html_url || `https://github.com/${GITHUB_REPO}/releases/latest`,
+      downloadUrl,
       publishedAt: release.published_at,
       releaseNotes: release.body || '',
       lastCheckedAt: Date.now(),
