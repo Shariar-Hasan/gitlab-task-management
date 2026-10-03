@@ -277,25 +277,27 @@ function InlineAssignee({ issue, onUpdate }: { issue: any; onUpdate: (payload: a
   );
 
   const toggle = async (member: any) => {
-    const newIds = isAssigned(member)
-      ? assignees.filter((a: any) => a.id !== member.id).map((a: any) => a.id)
-      : [...assignees.map((a: any) => a.id), member.id];
-    const newAssignees = isAssigned(member)
-      ? assignees.filter((a: any) => a.id !== member.id)
-      : [...assignees, member];
-    await onUpdate({ assignee_ids: newIds.length > 0 ? newIds : [0], assignees: newAssignees });
+    const already = isAssigned(member);
+    if (already) {
+      // Unassign this member
+      await onUpdate({ assignee_ids: [0], assignees: [] });
+    } else {
+      // Assign this member, unassigning any previous person
+      await onUpdate({ assignee_ids: [member.id], assignees: [member] });
+    }
+    setOpen(false);
   };
 
   const assignMe = async () => {
     if (!currentUser) return;
     const already = assignees.some((a: any) => a.id === currentUser.id);
-    const newIds = already
-      ? assignees.filter((a: any) => a.id !== currentUser.id).map((a: any) => a.id)
-      : [...assignees.map((a: any) => a.id), currentUser.id];
-    const newAssignees = already
-      ? assignees.filter((a: any) => a.id !== currentUser.id)
-      : [...assignees, currentUser];
-    await onUpdate({ assignee_ids: newIds, assignees: newAssignees });
+    if (already) {
+      // Unassign me
+      await onUpdate({ assignee_ids: [0], assignees: [] });
+    } else {
+      // Assign me, unassigning any previous person
+      await onUpdate({ assignee_ids: [currentUser.id], assignees: [currentUser] });
+    }
     setOpen(false);
   };
 
@@ -346,12 +348,28 @@ function InlineAssignee({ issue, onUpdate }: { issue: any; onUpdate: (payload: a
             {/* Assign me shortcut */}
             {currentUser && (
               <button
+                type="button"
                 onClick={assignMe}
                 className="w-full flex items-center gap-2.5 px-3 py-2 text-xs hover:bg-[var(--surface-2)] transition-colors border-b border-[var(--border)] cursor-pointer"
               >
                 <Avatar src={currentUser.avatar_url} name={currentUser.name} size="sm" />
                 <span className="flex-1 text-left text-[var(--text-1)]">Assign to me</span>
                 {assignees.some((a: any) => a.id === currentUser.id) && <Check className="h-3 w-3 text-[var(--accent)]" />}
+              </button>
+            )}
+
+            {/* Clear assignee button */}
+            {assignees.length > 0 && (
+              <button
+                type="button"
+                onClick={async () => {
+                  await onUpdate({ assignee_ids: [0], assignees: [] });
+                  setOpen(false);
+                }}
+                className="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-red-500 hover:bg-red-500/10 transition-colors border-b border-[var(--border)] cursor-pointer font-medium"
+              >
+                <X className="h-3.5 w-3.5" />
+                <span>Unassign</span>
               </button>
             )}
 

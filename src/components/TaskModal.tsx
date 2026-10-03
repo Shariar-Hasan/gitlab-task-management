@@ -174,9 +174,7 @@ export default function TaskModal({ open, onClose, editIssue = null }: TaskModal
       const exists = p.assignee_ids.includes(memberId);
       return {
         ...p,
-        assignee_ids: exists
-          ? p.assignee_ids.filter((id) => id !== memberId)
-          : [...p.assignee_ids, memberId],
+        assignee_ids: exists ? [] : [memberId],
       };
     });
   };
@@ -381,14 +379,11 @@ export default function TaskModal({ open, onClose, editIssue = null }: TaskModal
             />
           </div>
 
-          {/* 3. Assignees Selector (Multi-Selectable with Search) */}
+          {/* 3. Assignee Selector (Single Assignee — selecting another replaces previous) */}
           <div>
             <div className="flex items-center justify-between mb-1.5">
               <Label htmlFor="task-assignee" className="flex items-center gap-1.5 font-semibold text-xs text-[var(--text-1)] !mb-0">
-                <Users className="h-3.5 w-3.5 text-[var(--accent)]" /> Assignees
-                {form.assignee_ids.length > 0 && (
-                  <span className="text-[10px] text-[var(--accent)] font-mono">({form.assignee_ids.length})</span>
-                )}
+                <User className="h-3.5 w-3.5 text-[var(--accent)]" /> Assignee
               </Label>
               {currentUser && (
                 <button
@@ -407,8 +402,11 @@ export default function TaskModal({ open, onClose, editIssue = null }: TaskModal
             </div>
             <FilterSelect
               id="task-assignees"
-              value={form.assignee_ids}
-              onChange={(val) => setField('assignee_ids', Array.isArray(val) ? val.map(String) : [])}
+              value={form.assignee_ids[0] || ''}
+              onChange={(val) => {
+                const s = val ? String(val) : '';
+                setField('assignee_ids', s ? [s] : []);
+              }}
               options={members.map((m) => ({
                 value: String(m.id),
                 label: m.name || m.username,
@@ -422,13 +420,13 @@ export default function TaskModal({ open, onClose, editIssue = null }: TaskModal
                   />
                 ),
               }))}
-              placeholder="Assign members..."
-              label="Assignees"
-              icon={Users}
-              allLabel="None"
+              placeholder="Assign member..."
+              label="Assignee"
+              icon={User}
+              allLabel="Unassigned"
               searchable
               searchPlaceholder="Search members..."
-              isMulti
+              isMulti={false}
               width={280}
             />
           </div>
