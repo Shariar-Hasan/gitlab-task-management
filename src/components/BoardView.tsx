@@ -1,6 +1,6 @@
 import React, { useMemo, useState, useCallback, useRef, useEffect } from 'react';
 import {
-  GripVertical, Loader2, SlidersHorizontal, Check,
+  GripVertical, Loader2, SlidersHorizontal, Check, List, Kanban,
 } from 'lucide-react';
 import { cn } from '../lib/utils';
 import useStore from '../store/useStore';
@@ -398,6 +398,7 @@ export default function BoardView({ onEdit }: BoardViewProps) {
     taskSequence, reorderTaskSequence, setTaskSequence,
     boardVisibleColumns, toggleBoardColumn, resetBoardVisibleColumns,
     appSettings,
+    viewMode, setViewMode,
   } = useStore();
 
   const toast = useToast();
@@ -670,53 +671,86 @@ export default function BoardView({ onEdit }: BoardViewProps) {
           </span>
         </div>
 
-        {/* Visible Columns dropdown */}
-        <div className="relative" ref={colMenuRef}>
-          <button
-            type="button"
-            onClick={() => setShowColMenu((v) => !v)}
-            className="flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium rounded-lg border border-[var(--border)] bg-[var(--surface-2)] text-[var(--text-2)] hover:border-[var(--border-hover)] hover:text-[var(--text-1)] transition-colors cursor-pointer"
-          >
-            <SlidersHorizontal className="h-3 w-3" />
-            <span>Visible Columns ({activeFieldCount}/{BOARD_FIELDS.length})</span>
-          </button>
+        {/* Right controls: View Mode Switcher + Visible Columns */}
+        <div className="flex items-center gap-2">
+          {/* View Mode Switcher */}
+          <div className="flex items-center bg-[var(--surface-2)] border border-[var(--border)] rounded-lg p-0.5 gap-0.5">
+            <button
+              type="button"
+              onClick={() => setViewMode('table')}
+              title="Table View (1 or T)"
+              className={cn(
+                'flex items-center justify-center h-6 w-6 rounded-md transition-all cursor-pointer',
+                viewMode !== 'board'
+                  ? 'bg-[var(--accent)] text-white shadow-xs'
+                  : 'text-[var(--text-3)] hover:text-[var(--text-1)]'
+              )}
+            >
+              <List className="h-3.5 w-3.5" />
+            </button>
+            <button
+              type="button"
+              onClick={() => setViewMode('board')}
+              title="Board (Kanban) View (2 or B)"
+              className={cn(
+                'flex items-center justify-center h-6 w-6 rounded-md transition-all cursor-pointer',
+                viewMode === 'board'
+                  ? 'bg-[var(--accent)] text-white shadow-xs'
+                  : 'text-[var(--text-3)] hover:text-[var(--text-1)]'
+              )}
+            >
+              <Kanban className="h-3.5 w-3.5" />
+            </button>
+          </div>
 
-          {showColMenu && (
-            <div className="absolute right-0 top-full mt-1.5 w-52 p-2 rounded-xl border border-[var(--border)] bg-[var(--surface)] shadow-xl z-50 animate-scale-in">
-              <div className="flex items-center justify-between pb-1.5 mb-1.5 border-b border-[var(--border)]">
-                <span className="text-[11px] font-semibold text-[var(--text-1)]">Visible Columns</span>
-                <button
-                  type="button"
-                  onClick={resetBoardVisibleColumns}
-                  className="text-[10px] text-[var(--accent)] hover:underline cursor-pointer"
-                >
-                  Reset all
-                </button>
-              </div>
+          {/* Visible Columns dropdown */}
+          <div className="relative" ref={colMenuRef}>
+            <button
+              type="button"
+              onClick={() => setShowColMenu((v) => !v)}
+              className="flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium rounded-lg border border-[var(--border)] bg-[var(--surface-2)] text-[var(--text-2)] hover:border-[var(--border-hover)] hover:text-[var(--text-1)] transition-colors cursor-pointer"
+            >
+              <SlidersHorizontal className="h-3 w-3" />
+              <span>Visible Columns ({activeFieldCount}/{BOARD_FIELDS.length})</span>
+            </button>
 
-              <div className="space-y-1">
-                {BOARD_FIELDS.map((f) => {
-                  const isVisible = boardVisibleColumns[f.key];
-                  return (
-                    <button
-                      key={f.key}
-                      type="button"
-                      onClick={() => toggleBoardColumn(f.key)}
-                      className={cn(
-                        'w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-xs transition-colors cursor-pointer text-left',
-                        isVisible
-                          ? 'bg-[var(--accent-muted)]/40 text-[var(--text-1)] font-medium'
-                          : 'text-[var(--text-3)] hover:bg-[var(--surface-2)]'
-                      )}
-                    >
-                      <span>{f.label}</span>
-                      {isVisible && <Check className="h-3.5 w-3.5 text-[var(--accent)]" />}
-                    </button>
-                  );
-                })}
+            {showColMenu && (
+              <div className="absolute right-0 top-full mt-1.5 w-52 p-2 rounded-xl border border-[var(--border)] bg-[var(--surface)] shadow-xl z-50 animate-scale-in">
+                <div className="flex items-center justify-between pb-1.5 mb-1.5 border-b border-[var(--border)]">
+                  <span className="text-[11px] font-semibold text-[var(--text-1)]">Visible Columns</span>
+                  <button
+                    type="button"
+                    onClick={resetBoardVisibleColumns}
+                    className="text-[10px] text-[var(--accent)] hover:underline cursor-pointer"
+                  >
+                    Reset all
+                  </button>
+                </div>
+
+                <div className="space-y-1">
+                  {BOARD_FIELDS.map((f) => {
+                    const isVisible = boardVisibleColumns[f.key];
+                    return (
+                      <button
+                        key={f.key}
+                        type="button"
+                        onClick={() => toggleBoardColumn(f.key)}
+                        className={cn(
+                          'w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-xs transition-colors cursor-pointer text-left',
+                          isVisible
+                            ? 'bg-[var(--accent-muted)]/40 text-[var(--text-1)] font-medium'
+                            : 'text-[var(--text-3)] hover:bg-[var(--surface-2)]'
+                        )}
+                      >
+                        <span>{f.label}</span>
+                        {isVisible && <Check className="h-3.5 w-3.5 text-[var(--accent)]" />}
+                      </button>
+                    );
+                  })}
+                </div>
               </div>
-            </div>
-          )}
+            )}
+          </div>
         </div>
       </div>
 

@@ -2,7 +2,7 @@ import React, { useEffect, useState, useMemo, useCallback, useRef } from 'react'
 import {
   GitBranch, Search, Plus, Filter, RefreshCw, Settings,
   AlertCircle, X, BarChart3, CheckCircle2, Clock, Circle,
-  FolderGit2, CircleDot, Tag, List, Kanban, User, Bell,
+  FolderGit2, CircleDot, Tag, User, Bell,
   ExternalLink, Keyboard, HelpCircle, MoreVertical, FileText, ShieldCheck,
 } from 'lucide-react';
 import {
@@ -410,34 +410,6 @@ export default function Dashboard({ onSettings }: DashboardProps) {
           {/* Right actions */}
           <div className="flex items-center gap-1.5 ml-auto shrink-0">
             <CacheStatus lastFetchedAt={lastFetchedAt} />
-
-            {/* View Mode Toggle */}
-            <div className="flex items-center bg-[var(--surface-2)] border border-[var(--border)] rounded-lg p-0.5 gap-0.5">
-              <button
-                onClick={() => setViewMode('table')}
-                title="Table View (1 or T)"
-                className={cn(
-                  'flex items-center justify-center h-6 w-6 rounded-md transition-all cursor-pointer',
-                  viewMode !== 'board'
-                    ? 'bg-[var(--accent)] text-white shadow-xs'
-                    : 'text-[var(--text-3)] hover:text-[var(--text-1)]'
-                )}
-              >
-                <List className="h-3.5 w-3.5" />
-              </button>
-              <button
-                onClick={() => setViewMode('board')}
-                title="Board (Kanban) View (2 or B)"
-                className={cn(
-                  'flex items-center justify-center h-6 w-6 rounded-md transition-all cursor-pointer',
-                  viewMode === 'board'
-                    ? 'bg-[var(--accent)] text-white shadow-xs'
-                    : 'text-[var(--text-3)] hover:text-[var(--text-1)]'
-                )}
-              >
-                <Kanban className="h-3.5 w-3.5" />
-              </button>
-            </div>
 
             <ThemeToggle />
 

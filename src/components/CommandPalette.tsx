@@ -4,7 +4,7 @@ import {
   Kanban, List, FolderGit2, Circle, ArrowRight,
   ShieldCheck, FileText, Keyboard, X
 } from 'lucide-react';
-import { Dialog, DialogContent, DialogTitle } from '@radix-ui/react-dialog';
+import { Dialog, DialogContent, DialogTitle, DialogOverlay, DialogPortal } from '@radix-ui/react-dialog';
 import { VisuallyHidden } from '@radix-ui/react-visually-hidden';
 import { cn } from '../lib/utils';
 import { getEffectiveStatus } from '../lib/localStore';
@@ -324,11 +324,13 @@ export default function CommandPalette({
 
   return (
     <Dialog open={open} onOpenChange={(val) => !val && onClose()}>
-      <DialogContent
-        aria-describedby={undefined}
-        className="fixed top-[15%] left-1/2 -translate-x-1/2 w-[92vw] max-w-xl bg-[var(--surface)] border border-[var(--border)] rounded-xl shadow-xl overflow-hidden z-50 animate-scale-in text-[var(--text-1)]"
-        onKeyDown={handleKeyDown}
-      >
+      <DialogPortal>
+        <DialogOverlay className="fixed inset-0 z-50 bg-black/50 backdrop-blur-md animate-fade-in" />
+        <DialogContent
+          aria-describedby={undefined}
+          className="fixed top-[15%] left-1/2 -translate-x-1/2 w-[92vw] max-w-xl bg-[var(--surface)] border border-[var(--border)] rounded-xl shadow-xl overflow-hidden z-50 animate-scale-in text-[var(--text-1)]"
+          onKeyDown={handleKeyDown}
+        >
         <VisuallyHidden>
           <DialogTitle>Command Palette</DialogTitle>
         </VisuallyHidden>
@@ -445,6 +447,7 @@ export default function CommandPalette({
           <span className="font-mono">Command Menu</span>
         </div>
       </DialogContent>
-    </Dialog>
-  );
+    </DialogPortal>
+  </Dialog>
+);
 }
