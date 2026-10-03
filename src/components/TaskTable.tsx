@@ -1216,12 +1216,13 @@ interface BulkActionBarProps {
   onCloseSelected: () => void;
   onAssignToMe: () => void;
   onOpenSelected: () => void;
+  onDeleteSelected: () => void;
   projectMap?: Record<string, any>;
   customStatuses?: Record<string, string>;
 }
 
 function BulkActionBar({
-  selectedRows, onClear, onCloseSelected, onAssignToMe, onOpenSelected,
+  selectedRows, onClear, onCloseSelected, onAssignToMe, onOpenSelected, onDeleteSelected,
   projectMap, customStatuses,
 }: BulkActionBarProps) {
   const count = selectedRows.length;
@@ -1263,6 +1264,17 @@ function BulkActionBar({
         >
           <Copy className="h-3.5 w-3.5" />
           Copy
+        </Button>
+
+        {/* Delete Button */}
+        <Button
+          variant="danger"
+          size="sm"
+          onClick={onDeleteSelected}
+          className="gap-1.5"
+        >
+          <Trash2 className="h-3.5 w-3.5" />
+          Delete {count > 1 ? `(${count})` : ''}
         </Button>
 
         <CopyOptionsModal
@@ -1352,7 +1364,7 @@ export default function TaskTable({ onEdit }: TaskTableProps) {
     globalFilter, filterProjects, filterStatus, filterLabels, assignedToMe, currentUser,
     updateTask, deleteTask, toggleTaskState,
     pinnedKeys, togglePin,
-    bulkCloseIssues, bulkAssignToMe, bulkReopenIssues,
+    bulkCloseIssues, bulkAssignToMe, bulkReopenIssues, bulkDeleteTasks,
     globalLabels, appSettings, customStatuses,
     taskSequence, reorderTaskSequence, setTaskSequence,
     tableVisibleColumns, toggleTableColumn, resetTableVisibleColumns,
@@ -1925,6 +1937,25 @@ export default function TaskTable({ onEdit }: TaskTableProps) {
     toast({ type: 'success', message: `✓ Assigned ${items.length} tasks to you` });
   };
 
+  const handleBulkDelete = async () => {
+    const count = selectedRows.length;
+    const res = await confirm({
+      title: `Delete ${count} task${count > 1 ? 's' : ''}?`,
+      description: `Are you sure you want to permanently delete ${count} selected task${count > 1 ? 's' : ''}? This action cannot be undone on GitLab.`,
+      confirmButtonText: `Delete ${count} task${count > 1 ? 's' : ''}`,
+      danger: true,
+    });
+    if (!res?.result) return;
+
+    const items = selectedRows.map((r) => ({
+      projectId: r.original.project_id,
+      issueIid: r.original.iid,
+    }));
+    await bulkDeleteTasks(items);
+    setRowSelection({});
+    toast.success(`Deleted ${items.length} task${items.length > 1 ? 's' : ''}`);
+  };
+
   const { pageIndex, pageSize } = table.getState().pagination;
   const total = filteredIssues.length;
   const start = pageIndex * pageSize + 1;
@@ -2037,6 +2068,7 @@ export default function TaskTable({ onEdit }: TaskTableProps) {
           onCloseSelected={handleBulkClose}
           onOpenSelected={handleBulkOpen}
           onAssignToMe={handleBulkAssign}
+          onDeleteSelected={handleBulkDelete}
           projectMap={projectMap}
           customStatuses={customStatuses}
         />

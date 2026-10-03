@@ -94,6 +94,7 @@ export interface StoreState {
   bulkCloseIssues: (items: Array<{ projectId: string | number; issueIid: string | number; state: string }>) => Promise<void>;
   bulkAssignToMe: (items: Array<{ projectId: string | number; issueIid: string | number }>) => Promise<void>;
   bulkReopenIssues: (items: Array<{ projectId: string | number; issueIid: string | number }>) => Promise<void>;
+  bulkDeleteTasks: (items: Array<{ projectId: string | number; issueIid: string | number }>) => Promise<void>;
 
   // Labels
   labelsByProject: Record<string, any[]>;
@@ -874,6 +875,29 @@ const useStore = create<StoreState>((set, get) => ({
     items.forEach(({ projectId, issueIid }) => {
       get()._updateIssueInStore(projectId, issueIid, (i) => ({ ...i, state: 'opened' }));
     });
+  },
+
+  // Bulk delete
+  async bulkDeleteTasks(items: Array<{ projectId: string | number; issueIid: string | number }>): Promise<void> {
+    const { instanceUrl, token } = get();
+    // 1. Remove from client state immediately
+    items.forEach(({ projectId, issueIid }) => {
+      const key = `${projectId}_${issueIid}`;
+      get()._removeIssueFromStore(projectId, issueIid);
+      localStore.deleteCustomStatus(projectId, issueIid);
+      if (get().pinnedKeys.has(key)) {
+        get().togglePin(projectId, issueIid);
+      }
+    });
+
+    // 2. Permanently delete from GitLab in parallel
+    const results = await Promise.allSettled(
+      items.map(({ projectId, issueIid }) => deleteIssue(instanceUrl, token, projectId, issueIid))
+    );
+    const rejected = results.filter((r) => r.status === 'rejected');
+    if (rejected.length > 0) {
+      console.warn(`Bulk delete: ${rejected.length} tasks failed to delete from GitLab`);
+    }
   },
 
   // ── Labels ─────────────────────────────────────────────────────────────────
