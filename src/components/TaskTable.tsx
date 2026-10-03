@@ -277,25 +277,27 @@ function InlineAssignee({ issue, onUpdate }: { issue: any; onUpdate: (payload: a
   );
 
   const toggle = async (member: any) => {
-    const newIds = isAssigned(member)
-      ? assignees.filter((a: any) => a.id !== member.id).map((a: any) => a.id)
-      : [...assignees.map((a: any) => a.id), member.id];
-    const newAssignees = isAssigned(member)
-      ? assignees.filter((a: any) => a.id !== member.id)
-      : [...assignees, member];
-    await onUpdate({ assignee_ids: newIds.length > 0 ? newIds : [0], assignees: newAssignees });
+    const already = isAssigned(member);
+    if (already) {
+      // Unassign this member
+      await onUpdate({ assignee_ids: [0], assignees: [] });
+    } else {
+      // Assign this member, unassigning any previous person
+      await onUpdate({ assignee_ids: [member.id], assignees: [member] });
+    }
+    setOpen(false);
   };
 
   const assignMe = async () => {
     if (!currentUser) return;
     const already = assignees.some((a: any) => a.id === currentUser.id);
-    const newIds = already
-      ? assignees.filter((a: any) => a.id !== currentUser.id).map((a: any) => a.id)
-      : [...assignees.map((a: any) => a.id), currentUser.id];
-    const newAssignees = already
-      ? assignees.filter((a: any) => a.id !== currentUser.id)
-      : [...assignees, currentUser];
-    await onUpdate({ assignee_ids: newIds, assignees: newAssignees });
+    if (already) {
+      // Unassign me
+      await onUpdate({ assignee_ids: [0], assignees: [] });
+    } else {
+      // Assign me, unassigning any previous person
+      await onUpdate({ assignee_ids: [currentUser.id], assignees: [currentUser] });
+    }
     setOpen(false);
   };
 
@@ -346,12 +348,28 @@ function InlineAssignee({ issue, onUpdate }: { issue: any; onUpdate: (payload: a
             {/* Assign me shortcut */}
             {currentUser && (
               <button
+                type="button"
                 onClick={assignMe}
                 className="w-full flex items-center gap-2.5 px-3 py-2 text-xs hover:bg-[var(--surface-2)] transition-colors border-b border-[var(--border)] cursor-pointer"
               >
                 <Avatar src={currentUser.avatar_url} name={currentUser.name} size="sm" />
                 <span className="flex-1 text-left text-[var(--text-1)]">Assign to me</span>
                 {assignees.some((a: any) => a.id === currentUser.id) && <Check className="h-3 w-3 text-[var(--accent)]" />}
+              </button>
+            )}
+
+            {/* Clear assignee button */}
+            {assignees.length > 0 && (
+              <button
+                type="button"
+                onClick={async () => {
+                  await onUpdate({ assignee_ids: [0], assignees: [] });
+                  setOpen(false);
+                }}
+                className="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-red-500 hover:bg-red-500/10 transition-colors border-b border-[var(--border)] cursor-pointer font-medium"
+              >
+                <X className="h-3.5 w-3.5" />
+                <span>Unassign</span>
               </button>
             )}
 
@@ -1198,12 +1216,13 @@ interface BulkActionBarProps {
   onCloseSelected: () => void;
   onAssignToMe: () => void;
   onOpenSelected: () => void;
+  onDeleteSelected: () => void;
   projectMap?: Record<string, any>;
   customStatuses?: Record<string, string>;
 }
 
 function BulkActionBar({
-  selectedRows, onClear, onCloseSelected, onAssignToMe, onOpenSelected,
+  selectedRows, onClear, onCloseSelected, onAssignToMe, onOpenSelected, onDeleteSelected,
   projectMap, customStatuses,
 }: BulkActionBarProps) {
   const count = selectedRows.length;
@@ -1245,6 +1264,17 @@ function BulkActionBar({
         >
           <Copy className="h-3.5 w-3.5" />
           Copy
+        </Button>
+
+        {/* Delete Button */}
+        <Button
+          variant="danger"
+          size="sm"
+          onClick={onDeleteSelected}
+          className="gap-1.5"
+        >
+          <Trash2 className="h-3.5 w-3.5" />
+          Delete {count > 1 ? `(${count})` : ''}
         </Button>
 
         <CopyOptionsModal
@@ -1334,7 +1364,7 @@ export default function TaskTable({ onEdit }: TaskTableProps) {
     globalFilter, filterProjects, filterStatus, filterLabels, assignedToMe, currentUser,
     updateTask, deleteTask, toggleTaskState,
     pinnedKeys, togglePin,
-    bulkCloseIssues, bulkAssignToMe, bulkReopenIssues,
+    bulkCloseIssues, bulkAssignToMe, bulkReopenIssues, bulkDeleteTasks,
     globalLabels, appSettings, customStatuses,
     taskSequence, reorderTaskSequence, setTaskSequence,
     tableVisibleColumns, toggleTableColumn, resetTableVisibleColumns,
@@ -1693,7 +1723,17 @@ export default function TaskTable({ onEdit }: TaskTableProps) {
         return (
           <div className="flex items-center justify-end">
             <DropdownMenu
-              trigger={<Button variant="ghost" size="icon-sm" className="opacity-0 group-hover:opacity-100" onClick={(e: React.MouseEvent) => e.stopPropagation()}><MoreHorizontal className="h-4 w-4" /></Button>}
+              trigger={
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon-sm"
+                  className="opacity-0 group-hover:opacity-100 hover:opacity-100 cursor-pointer"
+                  title="Task actions"
+                >
+                  <MoreHorizontal className="h-4 w-4" />
+                </Button>
+              }
               align="right"
             >
               <DropdownItem icon={Edit2} onClick={() => onEdit?.(issue)}>Edit Task</DropdownItem>
@@ -1897,6 +1937,25 @@ export default function TaskTable({ onEdit }: TaskTableProps) {
     toast({ type: 'success', message: `✓ Assigned ${items.length} tasks to you` });
   };
 
+  const handleBulkDelete = async () => {
+    const count = selectedRows.length;
+    const res = await confirm({
+      title: `Delete ${count} task${count > 1 ? 's' : ''}?`,
+      description: `Are you sure you want to permanently delete ${count} selected task${count > 1 ? 's' : ''}? This action cannot be undone on GitLab.`,
+      confirmButtonText: `Delete ${count} task${count > 1 ? 's' : ''}`,
+      danger: true,
+    });
+    if (!res?.result) return;
+
+    const items = selectedRows.map((r) => ({
+      projectId: r.original.project_id,
+      issueIid: r.original.iid,
+    }));
+    await bulkDeleteTasks(items);
+    setRowSelection({});
+    toast.success(`Deleted ${items.length} task${items.length > 1 ? 's' : ''}`);
+  };
+
   const { pageIndex, pageSize } = table.getState().pagination;
   const total = filteredIssues.length;
   const start = pageIndex * pageSize + 1;
@@ -2009,6 +2068,7 @@ export default function TaskTable({ onEdit }: TaskTableProps) {
           onCloseSelected={handleBulkClose}
           onOpenSelected={handleBulkOpen}
           onAssignToMe={handleBulkAssign}
+          onDeleteSelected={handleBulkDelete}
           projectMap={projectMap}
           customStatuses={customStatuses}
         />

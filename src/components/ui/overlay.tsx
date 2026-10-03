@@ -115,14 +115,31 @@ export const DropdownMenu = ({ trigger, children, align = 'right', className, wi
     };
   }, [open, calcPosition]);
 
+  const handleToggle = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!open) {
+      calcPosition();
+    }
+    setOpen((v) => !v);
+  };
+
+  const triggerElement = React.isValidElement(trigger)
+    ? React.cloneElement(trigger as React.ReactElement<any>, {
+        onClick: (e: React.MouseEvent) => {
+          (trigger as React.ReactElement<any>).props?.onClick?.(e);
+          handleToggle(e);
+        },
+      })
+    : trigger;
+
   const menuWidth = width;
 
   return (
-    <div className="relative inline-flex" ref={triggerRef}>
-      <div onClick={(e) => { e.stopPropagation(); setOpen((v) => !v); }}>{trigger}</div>
+    <div className="relative inline-flex" ref={triggerRef} onClick={(e) => e.stopPropagation()}>
+      <div onClick={handleToggle} className="cursor-pointer">{triggerElement}</div>
       {open && createPortal(
         <>
-          <div className="fixed inset-0 z-[9990]" onMouseDown={() => setOpen(false)} />
+          <div className="fixed inset-0 z-[9990]" onMouseDown={(e) => { e.stopPropagation(); setOpen(false); }} />
           <div
             ref={menuRef}
             className={cn(
@@ -157,7 +174,11 @@ export interface DropdownItemProps {
 
 export const DropdownItem = ({ children, onClick, danger, icon: Icon, disabled, className, shortcut }: DropdownItemProps) => (
   <button
-    onClick={onClick}
+    type="button"
+    onClick={(e) => {
+      e.stopPropagation();
+      onClick?.(e);
+    }}
     disabled={disabled}
     className={cn(
       'w-full flex items-center justify-between px-3 py-1.5 text-xs text-left transition-colors focus:outline-none cursor-pointer',

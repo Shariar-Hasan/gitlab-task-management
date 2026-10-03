@@ -174,9 +174,7 @@ export default function TaskModal({ open, onClose, editIssue = null }: TaskModal
       const exists = p.assignee_ids.includes(memberId);
       return {
         ...p,
-        assignee_ids: exists
-          ? p.assignee_ids.filter((id) => id !== memberId)
-          : [...p.assignee_ids, memberId],
+        assignee_ids: exists ? [] : [memberId],
       };
     });
   };
@@ -218,10 +216,13 @@ export default function TaskModal({ open, onClose, editIssue = null }: TaskModal
 
     try {
       if (isEditing) {
-        // If user changed the project, move task to the new project!
+        // If user changed the project, move task to the new project (delete old task & create new one)!
         if (String(editIssue.project_id) !== String(form.project_id)) {
-          await moveTask(editIssue.project_id, editIssue.iid, form.project_id, payload);
-          toast({ type: 'success', message: '✓ Task moved to new project' });
+          const newIssue = await moveTask(editIssue.project_id, editIssue.iid, form.project_id, payload);
+          if (newIssue?.iid && form.status) {
+            await setTaskStatus(Number(form.project_id), newIssue.iid, form.status);
+          }
+          toast({ type: 'success', message: '✓ Task moved to new project (old task deleted)' });
         } else {
           await updateTask(editIssue.project_id, editIssue.iid, payload);
           if (form.status) {
@@ -351,8 +352,8 @@ export default function TaskModal({ open, onClose, editIssue = null }: TaskModal
               />
             </div>
             {isEditing && String(form.project_id) !== String(editIssue.project_id) && (
-              <p className="text-[10px] text-[var(--accent)] mt-1">
-                Note: Changing project will move this task to the selected project.
+              <p className="text-[10px] text-amber-500 font-medium mt-1">
+                Note: Changing project will create this task in the selected project and delete it from the old project.
               </p>
             )}
           </div>
@@ -378,14 +379,11 @@ export default function TaskModal({ open, onClose, editIssue = null }: TaskModal
             />
           </div>
 
-          {/* 3. Assignees Selector (Multi-Selectable with Search) */}
+          {/* 3. Assignee Selector (Single Assignee — selecting another replaces previous) */}
           <div>
             <div className="flex items-center justify-between mb-1.5">
               <Label htmlFor="task-assignee" className="flex items-center gap-1.5 font-semibold text-xs text-[var(--text-1)] !mb-0">
-                <Users className="h-3.5 w-3.5 text-[var(--accent)]" /> Assignees
-                {form.assignee_ids.length > 0 && (
-                  <span className="text-[10px] text-[var(--accent)] font-mono">({form.assignee_ids.length})</span>
-                )}
+                <User className="h-3.5 w-3.5 text-[var(--accent)]" /> Assignee
               </Label>
               {currentUser && (
                 <button
@@ -404,8 +402,11 @@ export default function TaskModal({ open, onClose, editIssue = null }: TaskModal
             </div>
             <FilterSelect
               id="task-assignees"
-              value={form.assignee_ids}
-              onChange={(val) => setField('assignee_ids', Array.isArray(val) ? val.map(String) : [])}
+              value={form.assignee_ids[0] || ''}
+              onChange={(val) => {
+                const s = val ? String(val) : '';
+                setField('assignee_ids', s ? [s] : []);
+              }}
               options={members.map((m) => ({
                 value: String(m.id),
                 label: m.name || m.username,
@@ -419,13 +420,13 @@ export default function TaskModal({ open, onClose, editIssue = null }: TaskModal
                   />
                 ),
               }))}
-              placeholder="Assign members..."
-              label="Assignees"
-              icon={Users}
-              allLabel="None"
+              placeholder="Assign member..."
+              label="Assignee"
+              icon={User}
+              allLabel="Unassigned"
               searchable
               searchPlaceholder="Search members..."
-              isMulti
+              isMulti={false}
               width={280}
             />
           </div>
