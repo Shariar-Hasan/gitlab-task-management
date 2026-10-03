@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "GitLab Task Manager",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "description": "Unified GitLab Task Management Dashboard — manage all your projects and issues from a single, powerful interface.",
   "icons": {
     "16": "icons/icon16.png",
