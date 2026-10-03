@@ -27,6 +27,7 @@ export interface CommandPaletteProps {
   onToggleTheme: () => void;
   onFilterProject: (projectId: string) => void;
   onFilterStatus: (statusId: string) => void;
+  onOpenShortcuts?: () => void;
   theme: string;
 }
 
@@ -59,6 +60,7 @@ export default function CommandPalette({
   onToggleTheme,
   onFilterProject,
   onFilterStatus,
+  onOpenShortcuts,
   theme,
 }: CommandPaletteProps) {
   const [query, setQuery] = useState('');
@@ -111,7 +113,7 @@ export default function CommandPalette({
         category: 'Commands',
         title: 'Sync Cloud Backup',
         subtitle: 'Backup settings & data to private GitLab repository',
-        shortcut: 'S',
+        shortcut: 'Ctrl+Shift+S',
         icon: ShieldCheck,
         action: () => { onClose(); onCloudSync(); },
       },
@@ -120,9 +122,18 @@ export default function CommandPalette({
         category: 'Commands',
         title: 'Force Reload from GitLab',
         subtitle: 'Bypass cache and sync live issues from API',
-        shortcut: 'R',
+        shortcut: 'Ctrl+Shift+R',
         icon: RefreshCw,
         action: () => { onClose(); onForceRefresh(); },
+      },
+      {
+        id: 'cmd-shortcuts',
+        category: 'Commands',
+        title: 'Keyboard Shortcuts Help',
+        subtitle: 'View all shortcuts and navigation tips',
+        shortcut: 'Ctrl+Shift+?',
+        icon: Keyboard,
+        action: () => { onClose(); onOpenShortcuts?.(); },
       },
       {
         id: 'cmd-theme',

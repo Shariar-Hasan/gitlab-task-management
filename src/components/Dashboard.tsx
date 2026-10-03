@@ -64,9 +64,9 @@ function KeyboardShortcutsModal({ open, onClose }: { open: boolean; onClose: () 
       category: 'Tasks & Sync',
       items: [
         { keys: ['C', 'or', 'N'], desc: 'Create a new task' },
-        { keys: ['R'], desc: 'Force reload from GitLab API' },
-        { keys: ['S'], desc: 'Trigger Cloud Backup & Sync' },
-        { keys: ['?'], desc: 'Toggle keyboard shortcuts help' },
+        { keys: ['⌘⇧R', 'or', 'Ctrl+Shift+R'], desc: 'Force reload from GitLab API' },
+        { keys: ['⌘⇧S', 'or', 'Ctrl+Shift+S'], desc: 'Trigger Cloud Backup & Sync' },
+        { keys: ['⌘⇧?', 'or', 'Ctrl+Shift+?'], desc: 'Toggle keyboard shortcuts help' },
       ],
     },
   ];
@@ -202,21 +202,39 @@ export default function Dashboard({ onSettings }: DashboardProps) {
   // Global Keyboard Shortcuts listener
   useEffect(() => {
     function handleKeyDown(e: KeyboardEvent) {
+      const isCtrlOrMeta = e.ctrlKey || e.metaKey;
+      const isShift = e.shiftKey;
+
       // Cmd+K / Ctrl+K opens Command Palette from anywhere
-      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
+      if (isCtrlOrMeta && !isShift && e.key.toLowerCase() === 'k') {
         e.preventDefault();
         setCommandPaletteOpen((v) => !v);
         return;
       }
 
-      const activeEl = document.activeElement;
-      const isInputActive = activeEl instanceof HTMLInputElement || activeEl instanceof HTMLTextAreaElement || (activeEl as HTMLElement)?.isContentEditable;
-
-      if (e.key === '?' && !isInputActive) {
+      // Ctrl+Shift+? (or Cmd+Shift+?)
+      if (isCtrlOrMeta && isShift && (e.key === '?' || e.key === '/')) {
         e.preventDefault();
         setShortcutsOpen((v) => !v);
         return;
       }
+
+      // Ctrl+Shift+R (or Cmd+Shift+R)
+      if (isCtrlOrMeta && isShift && e.key.toLowerCase() === 'r') {
+        e.preventDefault();
+        handleForceRefresh();
+        return;
+      }
+
+      // Ctrl+Shift+S (or Cmd+Shift+S)
+      if (isCtrlOrMeta && isShift && e.key.toLowerCase() === 's') {
+        e.preventDefault();
+        handleCloudSyncClick();
+        return;
+      }
+
+      const activeEl = document.activeElement;
+      const isInputActive = activeEl instanceof HTMLInputElement || activeEl instanceof HTMLTextAreaElement || (activeEl as HTMLElement)?.isContentEditable;
 
       if (isInputActive) {
         if (e.key === 'Escape') {
@@ -225,7 +243,7 @@ export default function Dashboard({ onSettings }: DashboardProps) {
         return;
       }
 
-      if (e.key === '/' && !e.ctrlKey && !e.metaKey) {
+      if (e.key === '/' && !isCtrlOrMeta) {
         e.preventDefault();
         searchInputRef.current?.focus();
         return;
@@ -246,18 +264,6 @@ export default function Dashboard({ onSettings }: DashboardProps) {
       if (e.key === 'c' || e.key === 'n') {
         e.preventDefault();
         handleCreate();
-        return;
-      }
-
-      if (e.key === 'r') {
-        e.preventDefault();
-        handleForceRefresh();
-        return;
-      }
-
-      if (e.key === 's') {
-        e.preventDefault();
-        handleCloudSyncClick();
         return;
       }
     }
@@ -449,7 +455,7 @@ export default function Dashboard({ onSettings }: DashboardProps) {
                 icon={ShieldCheck}
                 onClick={handleCloudSyncClick}
                 disabled={cloudSyncStatus === 'syncing'}
-                shortcut="S"
+                shortcut="Ctrl+Shift+S"
               >
                 {cloudSyncStatus === 'syncing' ? 'Syncing...' : 'Sync Cloud Backup'}
               </DropdownItem>
@@ -458,14 +464,14 @@ export default function Dashboard({ onSettings }: DashboardProps) {
                 icon={RefreshCw}
                 onClick={handleForceRefresh}
                 disabled={refreshing || isLoading}
-                shortcut="R"
+                shortcut="Ctrl+Shift+R"
               >
                 Force Reload API
               </DropdownItem>
               <DropdownItem
                 icon={Keyboard}
                 onClick={() => setShortcutsOpen(true)}
-                shortcut="?"
+                shortcut="Ctrl+Shift+?"
               >
                 Shortcuts
               </DropdownItem>
@@ -646,6 +652,7 @@ export default function Dashboard({ onSettings }: DashboardProps) {
         onToggleTheme={() => setTheme(theme === 'dark' ? 'light' : 'dark')}
         onFilterProject={(pid) => setFilterProjects([pid])}
         onFilterStatus={(sid) => setFilterStatus([sid])}
+        onOpenShortcuts={() => setShortcutsOpen(true)}
         theme={theme}
       />
 
