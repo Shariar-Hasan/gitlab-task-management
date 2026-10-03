@@ -1,8 +1,7 @@
 import React, { useState, useMemo } from 'react';
 import {
-  Sparkles, BarChart3, Copy, Check, Download, AlertTriangle,
-  Clock, CheckCircle2, CircleDot, FolderGit2, Calendar, FileText,
-  User, RefreshCw, X
+  BarChart3, Copy, Check, Download,
+  FolderGit2, FileText, User, X
 } from 'lucide-react';
 import { Modal } from './ui/overlay';
 import { Button } from './ui/index';
@@ -137,48 +136,43 @@ export default function StandupInsightsModal({
     return { completed, inProgress, upcoming, overdue };
   }, [relevantTasks, customStatuses]);
 
-  // Build formatted markdown standup text
+  // Clean, professional, human-style Markdown standup (NO emojis)
   const standupMarkdown = useMemo(() => {
-    const todayStr = new Date().toLocaleDateString(undefined, {
-      weekday: 'long',
-      month: 'short',
-      day: 'numeric',
-      year: 'numeric',
-    });
+    const todayStr = new Date().toISOString().slice(0, 10);
 
     const getTaskLine = (t: any) => {
       const proj = projectMap.get(t.project_id);
-      const projName = projectOverrides[String(t.project_id)]?.customName || proj?.name || `Proj-${t.project_id}`;
+      const projName = projectOverrides[String(t.project_id)]?.customName || proj?.name || `Project #${t.project_id}`;
       const dueInfo = t.due_date ? ` (Due: ${t.due_date})` : '';
-      return `- [${projName}] #${t.iid} ${t.title}${dueInfo}`;
+      return `- [${projName}] #${t.iid}: ${t.title}${dueInfo}`;
     };
 
-    let md = `### 🚀 Daily Standup — ${todayStr}\n`;
+    let md = `# Daily Standup - ${todayStr}\n`;
     if (currentUser?.name) {
-      md += `**Author:** ${currentUser.name} (@${currentUser.username})\n\n`;
+      md += `User: ${currentUser.name} (@${currentUser.username})\n\n`;
     }
 
-    md += `#### 🔄 In Progress & Today's Focus\n`;
+    md += `## In Progress\n`;
     if (standupCategories.inProgress.length === 0) {
-      md += `_No active tasks in progress_\n`;
+      md += `- None\n`;
     } else {
       standupCategories.inProgress.forEach((t) => { md += `${getTaskLine(t)}\n`; });
     }
 
-    md += `\n#### ✅ Completed Recently\n`;
+    md += `\n## Completed\n`;
     if (standupCategories.completed.length === 0) {
-      md += `_No tasks marked closed recently_\n`;
+      md += `- None\n`;
     } else {
       standupCategories.completed.slice(0, 10).forEach((t) => { md += `${getTaskLine(t)}\n`; });
     }
 
     if (standupCategories.overdue.length > 0) {
-      md += `\n#### ⚠️ Blockers & Overdue Tasks\n`;
+      md += `\n## Blockers & Overdue\n`;
       standupCategories.overdue.forEach((t) => { md += `${getTaskLine(t)}\n`; });
     }
 
     if (standupCategories.upcoming.length > 0) {
-      md += `\n#### 📋 Next in Queue (Backlog / Open)\n`;
+      md += `\n## Backlog / Next Up\n`;
       standupCategories.upcoming.slice(0, 5).forEach((t) => { md += `${getTaskLine(t)}\n`; });
     }
 
@@ -188,7 +182,7 @@ export default function StandupInsightsModal({
   const handleCopy = () => {
     navigator.clipboard.writeText(standupMarkdown);
     setCopied(true);
-    toast.success('Standup report copied to clipboard!');
+    toast.success('Standup report copied to clipboard');
     setTimeout(() => setCopied(false), 2000);
   };
 
@@ -200,7 +194,7 @@ export default function StandupInsightsModal({
     link.download = `standup_${new Date().toISOString().slice(0, 10)}.md`;
     link.click();
     URL.revokeObjectURL(url);
-    toast.success('Standup markdown file downloaded');
+    toast.success('Standup markdown file saved');
   };
 
   const handleExportCsv = () => {
@@ -224,7 +218,7 @@ export default function StandupInsightsModal({
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
-    link.download = `gitlab_tasks_export_${new Date().toISOString().slice(0, 10)}.csv`;
+    link.download = `gitlab_tasks_${new Date().toISOString().slice(0, 10)}.csv`;
     link.click();
     URL.revokeObjectURL(url);
     toast.success('Tasks exported to CSV');
@@ -232,200 +226,176 @@ export default function StandupInsightsModal({
 
   return (
     <Modal open={open} onClose={onClose} size="lg" className="p-0 overflow-hidden flex flex-col max-h-[85vh]">
-      {/* Header */}
-      <div className="flex items-center justify-between px-6 py-4 border-b border-[var(--border)] bg-[var(--surface-2)]/50">
-        <div className="flex items-center gap-3">
-          <div className="h-9 w-9 rounded-xl bg-gradient-to-br from-[var(--accent)] to-purple-700 flex items-center justify-center text-white shadow-lg shadow-[var(--accent)]/20">
-            <Sparkles className="h-5 w-5" />
+      {/* Header - Clean & Understated */}
+      <div className="flex items-center justify-between px-5 py-3 border-b border-[var(--border)] bg-[var(--surface)]">
+        <div className="flex items-center gap-2.5">
+          <div className="h-7 w-7 rounded-lg border border-[var(--border)] bg-[var(--surface-2)] flex items-center justify-center text-[var(--text-1)]">
+            <FileText className="h-4 w-4" />
           </div>
           <div>
-            <h2 className="text-sm font-bold text-[var(--text-1)]">Productivity & Daily Standup</h2>
-            <p className="text-xs text-[var(--text-3)]">
-              Instant standup reports, velocity breakdown & task analytics
+            <h2 className="text-sm font-semibold text-[var(--text-1)]">Daily Standup & Summary</h2>
+            <p className="text-[11px] text-[var(--text-3)]">
+              Markdown standup report and project velocity
             </p>
           </div>
         </div>
 
-        {/* Tab switcher */}
-        <div className="flex items-center gap-1 bg-[var(--surface-3)] p-1 rounded-xl border border-[var(--border)]">
+        {/* Tab switcher - Minimalist pill */}
+        <div className="flex items-center gap-0.5 bg-[var(--surface-2)] p-0.5 rounded-lg border border-[var(--border)]">
           <button
             onClick={() => setActiveTab('standup')}
             className={cn(
-              'px-3 py-1 rounded-lg text-xs font-medium transition-all cursor-pointer flex items-center gap-1.5',
+              'px-2.5 py-1 rounded-md text-xs font-medium transition-all cursor-pointer flex items-center gap-1.5',
               activeTab === 'standup'
-                ? 'bg-[var(--accent)] text-white shadow-xs'
-                : 'text-[var(--text-2)] hover:text-[var(--text-1)]'
+                ? 'bg-[var(--surface)] text-[var(--text-1)] shadow-xs border border-[var(--border)]'
+                : 'text-[var(--text-3)] hover:text-[var(--text-1)]'
             )}
           >
-            <FileText className="h-3.5 w-3.5" />
             Standup
           </button>
           <button
             onClick={() => setActiveTab('analytics')}
             className={cn(
-              'px-3 py-1 rounded-lg text-xs font-medium transition-all cursor-pointer flex items-center gap-1.5',
+              'px-2.5 py-1 rounded-md text-xs font-medium transition-all cursor-pointer flex items-center gap-1.5',
               activeTab === 'analytics'
-                ? 'bg-[var(--accent)] text-white shadow-xs'
-                : 'text-[var(--text-2)] hover:text-[var(--text-1)]'
+                ? 'bg-[var(--surface)] text-[var(--text-1)] shadow-xs border border-[var(--border)]'
+                : 'text-[var(--text-3)] hover:text-[var(--text-1)]'
             )}
           >
-            <BarChart3 className="h-3.5 w-3.5" />
             Velocity
           </button>
         </div>
       </div>
 
       {/* Subheader controls */}
-      <div className="flex items-center justify-between px-6 py-2.5 border-b border-[var(--border)] bg-[var(--surface)] text-xs">
-        <div className="flex items-center gap-3">
+      <div className="flex items-center justify-between px-5 py-2 border-b border-[var(--border)] bg-[var(--surface-2)]/30 text-xs">
+        <div className="flex items-center gap-2.5">
           <button
             onClick={() => setMyTasksOnly(!myTasksOnly)}
             className={cn(
-              'flex items-center gap-1.5 px-2.5 py-1 rounded-lg border transition-all cursor-pointer',
+              'flex items-center gap-1.5 px-2.5 py-1 rounded-md border text-xs transition-colors cursor-pointer',
               myTasksOnly
-                ? 'bg-[var(--accent-muted)] border-[var(--accent)] text-[var(--accent)] font-semibold'
-                : 'border-[var(--border)] text-[var(--text-3)] hover:text-[var(--text-1)]'
+                ? 'bg-[var(--surface)] border-[var(--border)] text-[var(--text-1)] font-medium shadow-xs'
+                : 'border-transparent text-[var(--text-3)] hover:text-[var(--text-1)]'
             )}
           >
             <User className="h-3.5 w-3.5" />
-            {myTasksOnly ? 'Showing My Assigned Tasks' : 'Showing All Tasks'}
+            {myTasksOnly ? 'My Tasks Only' : 'All Workspace Tasks'}
           </button>
-          <span className="text-[var(--text-3)]">
-            {relevantTasks.length} task{relevantTasks.length === 1 ? '' : 's'} loaded
+          <span className="text-[11px] text-[var(--text-3)]">
+            {relevantTasks.length} task{relevantTasks.length === 1 ? '' : 's'}
           </span>
         </div>
 
-        <div className="flex items-center gap-2">
-          <Button variant="outline" size="sm" onClick={handleExportCsv} title="Export filtered tasks to CSV">
-            <Download className="h-3.5 w-3.5" />
-            Export CSV
-          </Button>
-        </div>
+        <Button variant="ghost" size="sm" onClick={handleExportCsv} className="h-7 text-xs">
+          <Download className="h-3.5 w-3.5" />
+          Export CSV
+        </Button>
       </div>
 
       {/* Body Content */}
-      <div className="p-6 overflow-y-auto flex-1 space-y-6">
+      <div className="p-5 overflow-y-auto flex-1 space-y-4">
         {activeTab === 'standup' ? (
           <div className="space-y-4">
-            {/* Quick Standup Status Cards */}
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-              <div className="p-3.5 rounded-xl border border-[var(--border)] bg-[var(--surface-2)]/40 flex items-center gap-3">
-                <div className="h-8 w-8 rounded-lg bg-cyan-500/10 text-cyan-400 flex items-center justify-center shrink-0">
-                  <Clock className="h-4 w-4" />
-                </div>
-                <div>
-                  <div className="text-lg font-bold text-[var(--text-1)] leading-none">
-                    {standupCategories.inProgress.length}
-                  </div>
-                  <div className="text-[11px] text-[var(--text-3)] mt-1">In Progress / Active</div>
+            {/* Neutral, clean summary numbers */}
+            <div className="grid grid-cols-3 gap-3">
+              <div className="p-3 rounded-lg border border-[var(--border)] bg-[var(--surface)]">
+                <div className="text-[11px] text-[var(--text-3)]">In Progress</div>
+                <div className="text-xl font-semibold text-[var(--text-1)] mt-0.5">
+                  {standupCategories.inProgress.length}
                 </div>
               </div>
 
-              <div className="p-3.5 rounded-xl border border-[var(--border)] bg-[var(--surface-2)]/40 flex items-center gap-3">
-                <div className="h-8 w-8 rounded-lg bg-emerald-500/10 text-emerald-400 flex items-center justify-center shrink-0">
-                  <CheckCircle2 className="h-4 w-4" />
-                </div>
-                <div>
-                  <div className="text-lg font-bold text-[var(--text-1)] leading-none">
-                    {standupCategories.completed.length}
-                  </div>
-                  <div className="text-[11px] text-[var(--text-3)] mt-1">Completed</div>
+              <div className="p-3 rounded-lg border border-[var(--border)] bg-[var(--surface)]">
+                <div className="text-[11px] text-[var(--text-3)]">Completed</div>
+                <div className="text-xl font-semibold text-[var(--text-1)] mt-0.5">
+                  {standupCategories.completed.length}
                 </div>
               </div>
 
-              <div className="p-3.5 rounded-xl border border-[var(--border)] bg-[var(--surface-2)]/40 flex items-center gap-3">
-                <div className="h-8 w-8 rounded-lg bg-red-500/10 text-red-400 flex items-center justify-center shrink-0">
-                  <AlertTriangle className="h-4 w-4" />
-                </div>
-                <div>
-                  <div className="text-lg font-bold text-[var(--text-1)] leading-none">
-                    {standupCategories.overdue.length}
-                  </div>
-                  <div className="text-[11px] text-[var(--text-3)] mt-1">Overdue / Blocked</div>
+              <div className="p-3 rounded-lg border border-[var(--border)] bg-[var(--surface)]">
+                <div className="text-[11px] text-[var(--text-3)]">Overdue</div>
+                <div className="text-xl font-semibold text-[var(--text-1)] mt-0.5">
+                  {standupCategories.overdue.length}
                 </div>
               </div>
             </div>
 
-            {/* Standup Markdown Output */}
+            {/* Standup Markdown Text Area */}
             <div className="space-y-2">
               <div className="flex items-center justify-between">
-                <label className="text-xs font-bold uppercase tracking-wider text-[var(--text-3)]">
-                  Generated Standup Markdown
-                </label>
-                <div className="flex items-center gap-2">
-                  <Button variant="ghost" size="sm" onClick={handleDownload}>
-                    <Download className="h-3.5 w-3.5" />
-                    Download .md
+                <span className="text-[11px] font-medium text-[var(--text-3)] uppercase tracking-wider">
+                  Markdown Output
+                </span>
+                <div className="flex items-center gap-1.5">
+                  <Button variant="outline" size="sm" onClick={handleDownload} className="h-7 text-xs">
+                    <Download className="h-3 w-3" />
+                    .md
                   </Button>
-                  <Button size="sm" onClick={handleCopy} className="gap-1.5 font-semibold">
-                    {copied ? <Check className="h-3.5 w-3.5 text-emerald-400" /> : <Copy className="h-3.5 w-3.5" />}
-                    {copied ? 'Copied!' : 'Copy for Slack / Teams'}
+                  <Button size="sm" onClick={handleCopy} className="h-7 text-xs gap-1.5">
+                    {copied ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />}
+                    {copied ? 'Copied' : 'Copy'}
                   </Button>
                 </div>
               </div>
 
-              <div className="relative rounded-xl border border-[var(--border)] bg-[var(--surface-2)] overflow-hidden">
+              <div className="rounded-lg border border-[var(--border)] bg-[var(--surface-2)]/60 overflow-hidden">
                 <textarea
                   readOnly
                   value={standupMarkdown}
-                  rows={12}
-                  className="w-full p-4 bg-transparent text-xs font-mono text-[var(--text-1)] focus:outline-none resize-none leading-relaxed"
+                  rows={13}
+                  className="w-full p-3.5 bg-transparent text-xs font-mono text-[var(--text-1)] focus:outline-none resize-none leading-relaxed"
                 />
               </div>
             </div>
           </div>
         ) : (
-          /* Analytics Tab */
-          <div className="space-y-6">
+          /* Analytics Tab - Minimal, subtle, no rainbow colors */
+          <div className="space-y-4">
             {/* Top Metric Cards */}
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-              <div className="p-4 rounded-xl border border-[var(--border)] bg-[var(--surface-2)] flex flex-col gap-1">
-                <span className="text-[10px] text-[var(--text-3)] font-bold uppercase">Total Tasks</span>
-                <span className="text-2xl font-bold text-[var(--text-1)]">{analytics.total}</span>
+            <div className="grid grid-cols-4 gap-2.5">
+              <div className="p-3 rounded-lg border border-[var(--border)] bg-[var(--surface)]">
+                <div className="text-[10px] text-[var(--text-3)] uppercase font-semibold">Total</div>
+                <div className="text-xl font-semibold text-[var(--text-1)] mt-0.5">{analytics.total}</div>
               </div>
-              <div className="p-4 rounded-xl border border-[var(--border)] bg-[var(--surface-2)] flex flex-col gap-1">
-                <span className="text-[10px] text-[var(--text-3)] font-bold uppercase">Open Tasks</span>
-                <span className="text-2xl font-bold text-amber-400">{analytics.open}</span>
+              <div className="p-3 rounded-lg border border-[var(--border)] bg-[var(--surface)]">
+                <div className="text-[10px] text-[var(--text-3)] uppercase font-semibold">Open</div>
+                <div className="text-xl font-semibold text-[var(--text-1)] mt-0.5">{analytics.open}</div>
               </div>
-              <div className="p-4 rounded-xl border border-[var(--border)] bg-[var(--surface-2)] flex flex-col gap-1">
-                <span className="text-[10px] text-[var(--text-3)] font-bold uppercase">Closed Tasks</span>
-                <span className="text-2xl font-bold text-emerald-400">{analytics.closed}</span>
+              <div className="p-3 rounded-lg border border-[var(--border)] bg-[var(--surface)]">
+                <div className="text-[10px] text-[var(--text-3)] uppercase font-semibold">Closed</div>
+                <div className="text-xl font-semibold text-[var(--text-1)] mt-0.5">{analytics.closed}</div>
               </div>
-              <div className="p-4 rounded-xl border border-[var(--border)] bg-[var(--surface-2)] flex flex-col gap-1">
-                <span className="text-[10px] text-[var(--text-3)] font-bold uppercase">Completion Velocity</span>
-                <span className="text-2xl font-bold text-[var(--accent)]">{analytics.completionRate}%</span>
+              <div className="p-3 rounded-lg border border-[var(--border)] bg-[var(--surface)]">
+                <div className="text-[10px] text-[var(--text-3)] uppercase font-semibold">Velocity</div>
+                <div className="text-xl font-semibold text-[var(--text-1)] mt-0.5">{analytics.completionRate}%</div>
               </div>
             </div>
 
-            {/* Status Breakdown Bar */}
-            <div className="p-4 rounded-xl border border-[var(--border)] bg-[var(--surface-2)] space-y-3">
-              <div className="flex items-center justify-between text-xs font-semibold text-[var(--text-1)]">
-                <span>Task Distribution Across Statuses</span>
-                <span className="text-[var(--text-3)]">{analytics.total} total</span>
+            {/* Clean Progress Bar */}
+            <div className="p-3.5 rounded-lg border border-[var(--border)] bg-[var(--surface)] space-y-2">
+              <div className="flex items-center justify-between text-xs text-[var(--text-1)]">
+                <span className="font-medium">Task Completion</span>
+                <span className="text-[var(--text-3)] text-[11px]">{analytics.closed} of {analytics.total} completed ({analytics.completionRate}%)</span>
               </div>
 
-              {/* Progress segments bar */}
-              <div className="h-3 w-full rounded-full bg-[var(--surface-3)] overflow-hidden flex">
-                {analytics.statusCounts.map((s) => (
-                  <div
-                    key={s.id}
-                    title={`${s.label}: ${s.count} (${s.pct}%)`}
-                    style={{ width: `${s.pct}%`, backgroundColor: s.color }}
-                    className="h-full transition-all duration-300"
-                  />
-                ))}
+              <div className="h-2 w-full rounded-full bg-[var(--surface-3)] overflow-hidden">
+                <div
+                  className="h-full bg-[var(--accent)] rounded-full transition-all duration-300"
+                  style={{ width: `${analytics.completionRate}%` }}
+                />
               </div>
+            </div>
 
-              {/* Status legends */}
-              <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 pt-2 border-t border-[var(--border)]">
+            {/* Status counts list - Clean neutral table */}
+            <div className="p-3.5 rounded-lg border border-[var(--border)] bg-[var(--surface)] space-y-2">
+              <div className="text-xs font-medium text-[var(--text-1)]">Status Distribution</div>
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
                 {analytics.statusCounts.map((s) => (
-                  <div key={s.id} className="flex items-center justify-between text-xs px-2 py-1 rounded-md bg-[var(--surface)]">
-                    <div className="flex items-center gap-1.5 min-w-0">
-                      <span className="h-2 w-2 rounded-full shrink-0" style={{ backgroundColor: s.color }} />
-                      <span className="text-[var(--text-2)] truncate text-[11px]">{s.label}</span>
-                    </div>
-                    <span className="font-semibold text-[var(--text-1)] text-[11px]">
-                      {s.count} <span className="text-[var(--text-3)] font-normal">({s.pct}%)</span>
+                  <div key={s.id} className="flex items-center justify-between text-xs px-2.5 py-1.5 rounded border border-[var(--border)] bg-[var(--surface-2)]/40">
+                    <span className="text-[var(--text-2)] truncate text-[11px]">{s.label}</span>
+                    <span className="font-mono text-[11px] text-[var(--text-1)] font-medium">
+                      {s.count}
                     </span>
                   </div>
                 ))}
@@ -433,27 +403,22 @@ export default function StandupInsightsModal({
             </div>
 
             {/* Top Projects Workload */}
-            <div className="p-4 rounded-xl border border-[var(--border)] bg-[var(--surface-2)] space-y-3">
-              <div className="flex items-center justify-between text-xs font-semibold text-[var(--text-1)]">
-                <div className="flex items-center gap-1.5">
-                  <FolderGit2 className="h-4 w-4 text-[var(--accent)]" />
-                  <span>Top Projects by Workload</span>
-                </div>
-                <span className="text-[var(--text-3)]">Open tasks ranking</span>
+            <div className="p-3.5 rounded-lg border border-[var(--border)] bg-[var(--surface)] space-y-2.5">
+              <div className="flex items-center justify-between text-xs text-[var(--text-1)]">
+                <span className="font-medium">Active Projects Workload</span>
+                <span className="text-[var(--text-3)] text-[11px]">Open tasks</span>
               </div>
 
               <div className="space-y-2">
                 {analytics.topProjects.map((p, idx) => (
                   <div key={idx} className="space-y-1">
                     <div className="flex items-center justify-between text-xs">
-                      <span className="text-[var(--text-1)] font-medium truncate max-w-xs">{p.name}</span>
-                      <span className="text-[var(--text-3)] text-[11px]">
-                        <strong>{p.openCount}</strong> open / {p.count} total
-                      </span>
+                      <span className="text-[var(--text-1)] truncate max-w-sm">{p.name}</span>
+                      <span className="text-[var(--text-3)] font-mono text-[11px]">{p.openCount} open</span>
                     </div>
-                    <div className="h-2 w-full rounded-full bg-[var(--surface-3)] overflow-hidden">
+                    <div className="h-1.5 w-full rounded-full bg-[var(--surface-3)] overflow-hidden">
                       <div
-                        className="h-full bg-[var(--accent)] rounded-full transition-all duration-300"
+                        className="h-full bg-[var(--text-3)]/60 rounded-full transition-all duration-300"
                         style={{ width: `${analytics.total > 0 ? (p.openCount / analytics.total) * 100 : 0}%` }}
                       />
                     </div>
@@ -466,12 +431,12 @@ export default function StandupInsightsModal({
       </div>
 
       {/* Footer */}
-      <div className="flex items-center justify-between px-6 py-3 border-t border-[var(--border)] bg-[var(--surface-2)]/60">
+      <div className="flex items-center justify-between px-5 py-2.5 border-t border-[var(--border)] bg-[var(--surface-2)]/30">
         <span className="text-[11px] text-[var(--text-3)]">
-          Pro-tip: Press <kbd className="px-1 py-0.5 bg-[var(--surface)] border border-[var(--border)] rounded font-mono text-[10px]">Ctrl+K</kbd> to launch standup anytime.
+          Press Esc to close
         </span>
-        <Button variant="outline" size="sm" onClick={onClose}>
-          Done
+        <Button variant="outline" size="sm" onClick={onClose} className="h-7 text-xs">
+          Close
         </Button>
       </div>
     </Modal>

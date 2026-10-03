@@ -3,13 +3,13 @@ import {
   GitBranch, Search, Plus, Filter, RefreshCw, Settings,
   AlertCircle, X, BarChart3, CheckCircle2, Clock, Circle,
   FolderGit2, CircleDot, Tag, List, Kanban, User, Bell,
-  ExternalLink, Keyboard, HelpCircle, Sparkles, Command,
+  ExternalLink, Keyboard, HelpCircle, MoreVertical, FileText, ShieldCheck,
 } from 'lucide-react';
 import {
   Button, Input, Spinner, ProgressBar, Skeleton,
   ThemeToggle, CacheStatus, FilterSelect,
 } from './ui/index';
-import { Modal } from './ui/overlay';
+import { Modal, DropdownMenu, DropdownItem, DropdownSeparator } from './ui/overlay';
 import TaskTable from './TaskTable';
 import BoardView from './BoardView';
 import TaskModal from './TaskModal';
@@ -386,20 +386,6 @@ export default function Dashboard({ onSettings }: DashboardProps) {
             </div>
           </div>
 
-          {/* Omnibar / Command Palette Trigger */}
-          <button
-            type="button"
-            onClick={() => setCommandPaletteOpen(true)}
-            className="hidden md:flex items-center gap-2 px-3 py-1.5 rounded-xl border border-[var(--border)] bg-[var(--surface-2)]/60 hover:bg-[var(--surface-2)] hover:border-[var(--border-hover)] text-xs text-[var(--text-3)] hover:text-[var(--text-2)] transition-all cursor-pointer shadow-xs min-w-[210px] max-w-sm"
-            title="Press Ctrl+K or Cmd+K to search tasks or trigger commands"
-          >
-            <Search className="h-3.5 w-3.5 text-[var(--accent)]" />
-            <span className="flex-1 text-left truncate">Search or run command...</span>
-            <kbd className="px-1.5 py-0.5 rounded text-[10px] font-mono font-semibold bg-[var(--surface)] border border-[var(--border)] text-[var(--text-2)] shadow-2xs">
-              ⌘K
-            </kbd>
-          </button>
-
           {/* Right actions */}
           <div className="flex items-center gap-1.5 ml-auto shrink-0">
             <CacheStatus lastFetchedAt={lastFetchedAt} />
@@ -434,56 +420,64 @@ export default function Dashboard({ onSettings }: DashboardProps) {
 
             <ThemeToggle />
 
-            {/* Standup & Velocity Insights */}
-            <button
-              type="button"
-              onClick={() => setStandupOpen(true)}
-              title="Daily Standup Generator & Velocity Insights"
-              className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg border border-[var(--border)] bg-[var(--surface-2)] hover:border-[var(--border-hover)] hover:text-[var(--text-1)] text-[var(--text-2)] text-xs transition-colors cursor-pointer"
-            >
-              <Sparkles className="h-3.5 w-3.5 text-purple-400" />
-              <span className="hidden xl:inline text-[11px] font-medium">Standup & Insights</span>
-            </button>
-
-            {/* Cloud Backup Quick Sync */}
-            <button
-              type="button"
-              onClick={() => syncToCloud()}
-              disabled={cloudSyncStatus === 'syncing'}
-              title={
-                cloudSyncLastSynced
-                  ? `GitLab Cloud Backup: Last synced at ${new Date(cloudSyncLastSynced).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}. Click to sync now (S).`
-                  : 'GitLab Cloud Backup: Click to sync now (S).'
-              }
-              className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg border border-[var(--border)] bg-[var(--surface-2)] hover:border-[var(--border-hover)] hover:text-[var(--text-1)] text-[var(--text-2)] text-xs transition-colors cursor-pointer"
-            >
-              <RefreshCw className={cn('h-3.5 w-3.5', cloudSyncStatus === 'syncing' ? 'animate-spin text-[var(--accent)]' : cloudSyncStatus === 'error' ? 'text-red-500' : 'text-emerald-500')} />
-              <span className="hidden xl:inline text-[11px] font-medium">
-                {cloudSyncStatus === 'syncing' ? 'Syncing...' : 'Cloud Backup'}
-              </span>
-            </button>
-
-            {/* Shortcuts help button */}
-            <Button
-              variant="ghost"
-              size="icon-sm"
-              onClick={() => setShortcutsOpen(true)}
-              title="Keyboard Shortcuts (?)"
-            >
-              <HelpCircle className="h-4 w-4" />
-            </Button>
-
-            <Button
-              variant="ghost" size="icon-sm"
-              onClick={handleForceRefresh}
-              disabled={refreshing || isLoading}
-              title="Force refresh from GitLab"
-            >
-              <RefreshCw className={cn('h-4 w-4', (refreshing || isLoading) && 'animate-spin')} />
-            </Button>
+            {/* Settings */}
             <Button variant="ghost" size="icon-sm" onClick={onSettings} title="Settings">
               <Settings className="h-4 w-4" />
             </Button>
+
+            {/* Three-Dot Dropdown Menu */}
+            <DropdownMenu
+              align="right"
+              width={220}
+              trigger={
+                <button
+                  type="button"
+                  className="flex items-center justify-center h-7 w-7 rounded-md text-[var(--text-3)] hover:text-[var(--text-1)] hover:bg-[var(--surface-2)] transition-colors cursor-pointer"
+                  title="More actions"
+                >
+                  <MoreVertical className="h-4 w-4" />
+                </button>
+              }
+            >
+              <DropdownItem
+                icon={Search}
+                onClick={() => setCommandPaletteOpen(true)}
+                shortcut="⌘K"
+              >
+                Command Palette
+              </DropdownItem>
+              <DropdownItem
+                icon={FileText}
+                onClick={() => setStandupOpen(true)}
+              >
+                Daily Standup
+              </DropdownItem>
+              <DropdownItem
+                icon={ShieldCheck}
+                onClick={() => syncToCloud()}
+                disabled={cloudSyncStatus === 'syncing'}
+                shortcut="S"
+              >
+                {cloudSyncStatus === 'syncing' ? 'Syncing...' : 'Sync Cloud Backup'}
+              </DropdownItem>
+              <DropdownSeparator />
+              <DropdownItem
+                icon={RefreshCw}
+                onClick={handleForceRefresh}
+                disabled={refreshing || isLoading}
+                shortcut="R"
+              >
+                Force Reload API
+              </DropdownItem>
+              <DropdownItem
+                icon={Keyboard}
+                onClick={() => setShortcutsOpen(true)}
+                shortcut="?"
+              >
+                Shortcuts
+              </DropdownItem>
+            </DropdownMenu>
+
             <Button size="sm" onClick={handleCreate}>
               <Plus className="h-4 w-4" />
               New Task

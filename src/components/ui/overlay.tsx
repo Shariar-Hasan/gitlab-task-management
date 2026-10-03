@@ -73,9 +73,10 @@ export interface DropdownMenuProps {
   children: React.ReactNode;
   align?: 'left' | 'right';
   className?: string;
+  width?: number;
 }
 
-export const DropdownMenu = ({ trigger, children, align = 'right', className }: DropdownMenuProps) => {
+export const DropdownMenu = ({ trigger, children, align = 'right', className, width = 180 }: DropdownMenuProps) => {
   const [open, setOpen] = React.useState(false);
   const [pos, setPos] = React.useState({ top: 0, left: 0, openUp: false });
   const triggerRef = React.useRef<HTMLDivElement>(null);
@@ -84,10 +85,10 @@ export const DropdownMenu = ({ trigger, children, align = 'right', className }: 
   const calcPosition = React.useCallback(() => {
     if (!triggerRef.current) return;
     const r = triggerRef.current.getBoundingClientRect();
-    const menuWidth = 180;
+    const menuWidth = width;
     const spaceBelow = window.innerHeight - r.bottom;
     const spaceAbove = r.top;
-    const openUp = spaceBelow < 220 && spaceAbove > 150;
+    const openUp = spaceBelow < 260 && spaceAbove > 180;
 
     let top = openUp ? r.top - 8 : r.bottom + 6;
     let left = align === 'right' ? r.right - menuWidth : r.left;
@@ -95,7 +96,7 @@ export const DropdownMenu = ({ trigger, children, align = 'right', className }: 
     if (left < 8) left = 8;
 
     setPos({ top, left, openUp });
-  }, [align]);
+  }, [align, width]);
 
   React.useEffect(() => {
     if (!open) return;
@@ -114,7 +115,7 @@ export const DropdownMenu = ({ trigger, children, align = 'right', className }: 
     };
   }, [open, calcPosition]);
 
-  const menuWidth = 180;
+  const menuWidth = width;
 
   return (
     <div className="relative inline-flex" ref={triggerRef}>
@@ -125,7 +126,7 @@ export const DropdownMenu = ({ trigger, children, align = 'right', className }: 
           <div
             ref={menuRef}
             className={cn(
-              'fixed z-[9995] min-w-[160px] rounded-xl border border-[var(--border)] bg-[var(--surface)] shadow-[var(--shadow-modal)] py-1 animate-fade-in',
+              'fixed z-[9995] rounded-xl border border-[var(--border)] bg-[var(--surface)] shadow-[var(--shadow-modal)] py-1 animate-fade-in',
               className
             )}
             style={{
@@ -151,22 +152,30 @@ export interface DropdownItemProps {
   icon?: any;
   disabled?: boolean;
   className?: string;
+  shortcut?: string;
 }
 
-export const DropdownItem = ({ children, onClick, danger, icon: Icon, disabled, className }: DropdownItemProps) => (
+export const DropdownItem = ({ children, onClick, danger, icon: Icon, disabled, className, shortcut }: DropdownItemProps) => (
   <button
     onClick={onClick}
     disabled={disabled}
     className={cn(
-      'w-full flex items-center gap-2.5 px-3 py-2 text-sm text-left transition-colors focus:outline-none cursor-pointer',
+      'w-full flex items-center justify-between px-3 py-1.5 text-xs text-left transition-colors focus:outline-none cursor-pointer',
       'hover:bg-[var(--surface-2)]',
       danger ? 'text-red-500' : 'text-[var(--text-2)] hover:text-[var(--text-1)]',
       disabled && 'opacity-40 pointer-events-none',
       className
     )}
   >
-    {Icon && <Icon className="h-3.5 w-3.5 shrink-0" />}
-    {children}
+    <div className="flex items-center gap-2 min-w-0">
+      {Icon && <Icon className="h-3.5 w-3.5 shrink-0" />}
+      <span className="truncate">{children}</span>
+    </div>
+    {shortcut && (
+      <kbd className="text-[10px] font-mono text-[var(--text-3)] bg-[var(--surface-2)] border border-[var(--border)] px-1 py-0.5 rounded ml-2 shrink-0">
+        {shortcut}
+      </kbd>
+    )}
   </button>
 );
 

@@ -1,8 +1,8 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import {
   Search, Plus, RefreshCw, Moon, Sun, Settings,
-  Kanban, List, FolderGit2, CheckCircle2, Circle, AlertCircle,
-  Command, ArrowRight, Sparkles, Filter, ShieldCheck, Tag
+  Kanban, List, FolderGit2, Circle, ArrowRight,
+  ShieldCheck, FileText, Keyboard, X
 } from 'lucide-react';
 import { Dialog, DialogContent, DialogTitle } from '@radix-ui/react-dialog';
 import { VisuallyHidden } from '@radix-ui/react-visually-hidden';
@@ -32,11 +32,11 @@ export interface CommandPaletteProps {
 
 interface PaletteItem {
   id: string;
-  category: 'Actions' | 'Views' | 'Tasks' | 'Projects' | 'Statuses';
+  category: 'Commands' | 'Views' | 'Tasks' | 'Filter by Project' | 'Filter by Status';
   title: string;
   subtitle?: string;
   badge?: string;
-  badgeColor?: string;
+  shortcut?: string;
   icon?: any;
   action: () => void;
 }
@@ -82,58 +82,61 @@ export default function CommandPalette({
     return map;
   }, [projects]);
 
-  // Compute all actionable commands & items
+  // Compute all actionable commands & items with clean monochrome aesthetics
   const items = useMemo(() => {
     const q = query.trim().toLowerCase();
     const result: PaletteItem[] = [];
 
-    // 1. Core Quick Actions
-    const actions: PaletteItem[] = [
+    // 1. Core Quick Commands
+    const commands: PaletteItem[] = [
       {
-        id: 'action-create',
-        category: 'Actions',
-        title: 'Create New Task',
-        subtitle: 'Quickly open task composer (C or N)',
+        id: 'cmd-create',
+        category: 'Commands',
+        title: 'New Task',
+        subtitle: 'Open task composer',
+        shortcut: 'C',
         icon: Plus,
         action: () => { onClose(); onCreateTask(); },
       },
       {
-        id: 'action-standup',
-        category: 'Actions',
-        title: 'Daily Standup & Insights',
-        subtitle: 'Generate formatted standup report and view velocity stats',
-        icon: Sparkles,
+        id: 'cmd-standup',
+        category: 'Commands',
+        title: 'Daily Standup & Summary',
+        subtitle: 'Generate clean text report & velocity metrics',
+        icon: FileText,
         action: () => { onClose(); onOpenStandup(); },
       },
       {
-        id: 'action-cloud-sync',
-        category: 'Actions',
-        title: 'Sync Cloud Backup Now',
-        subtitle: 'Backup settings & data to your private GitLab repo',
+        id: 'cmd-cloud-sync',
+        category: 'Commands',
+        title: 'Sync Cloud Backup',
+        subtitle: 'Backup settings & data to private GitLab repository',
+        shortcut: 'S',
         icon: ShieldCheck,
         action: () => { onClose(); onCloudSync(); },
       },
       {
-        id: 'action-refresh',
-        category: 'Actions',
-        title: 'Force Reload from GitLab API',
-        subtitle: 'Bypass cache and sync live data',
+        id: 'cmd-refresh',
+        category: 'Commands',
+        title: 'Force Reload from GitLab',
+        subtitle: 'Bypass cache and sync live issues from API',
+        shortcut: 'R',
         icon: RefreshCw,
         action: () => { onClose(); onForceRefresh(); },
       },
       {
-        id: 'action-theme',
-        category: 'Actions',
-        title: `Switch Theme to ${theme === 'dark' ? 'Light' : 'Dark'} Mode`,
-        subtitle: 'Toggle current color palette',
+        id: 'cmd-theme',
+        category: 'Commands',
+        title: `Switch to ${theme === 'dark' ? 'Light' : 'Dark'} Mode`,
+        subtitle: 'Toggle theme appearance',
         icon: theme === 'dark' ? Sun : Moon,
         action: () => { onClose(); onToggleTheme(); },
       },
       {
-        id: 'action-settings',
-        category: 'Actions',
-        title: 'Open Settings',
-        subtitle: 'Configure GitLab PAT, cloud backup, labels & columns',
+        id: 'cmd-settings',
+        category: 'Commands',
+        title: 'Settings',
+        subtitle: 'Manage token, labels, backup & columns',
         icon: Settings,
         action: () => { onClose(); onOpenSettings(); },
       },
@@ -144,25 +147,27 @@ export default function CommandPalette({
       {
         id: 'view-table',
         category: 'Views',
-        title: 'Switch to Table View',
-        subtitle: 'Detailed sortable & bulk-editable task list',
+        title: 'Table View',
+        subtitle: 'List format with sorting and bulk actions',
+        shortcut: '1',
         icon: List,
         action: () => { onClose(); onSwitchView('table'); },
       },
       {
         id: 'view-board',
         category: 'Views',
-        title: 'Switch to Board (Kanban) View',
-        subtitle: 'Visual status columns with smooth drag and drop',
+        title: 'Kanban Board View',
+        subtitle: 'Status columns with drag and drop',
+        shortcut: '2',
         icon: Kanban,
         action: () => { onClose(); onSwitchView('board'); },
       },
     ];
 
-    // Filter actions by query
-    actions.forEach((a) => {
-      if (!q || a.title.toLowerCase().includes(q) || a.subtitle?.toLowerCase().includes(q)) {
-        result.push(a);
+    // Filter commands by query
+    commands.forEach((c) => {
+      if (!q || c.title.toLowerCase().includes(q) || c.subtitle?.toLowerCase().includes(q)) {
+        result.push(c);
       }
     });
 
@@ -172,24 +177,23 @@ export default function CommandPalette({
       }
     });
 
-    // 3. Status Filters (if search mentions status or query matches)
+    // 3. Status Filters
     boardStatuses
       .filter((s) => s.enabled)
       .forEach((status) => {
         if (!q || status.label.toLowerCase().includes(q) || 'status'.includes(q)) {
           result.push({
             id: `status-${status.id}`,
-            category: 'Statuses',
-            title: `Filter by status: ${status.label}`,
+            category: 'Filter by Status',
+            title: `Filter: ${status.label}`,
             badge: status.label,
-            badgeColor: status.color,
             icon: Circle,
             action: () => { onClose(); onFilterStatus(status.id); },
           });
         }
       });
 
-    // 4. Project Filters (if query matches project name)
+    // 4. Project Filters
     projects
       .filter((p) => {
         const override = projectOverrides[String(p.id)];
@@ -202,8 +206,8 @@ export default function CommandPalette({
         if (!q || name.toLowerCase().includes(q) || proj.path_with_namespace?.toLowerCase().includes(q)) {
           result.push({
             id: `proj-${proj.id}`,
-            category: 'Projects',
-            title: `Filter project: ${name}`,
+            category: 'Filter by Project',
+            title: name,
             subtitle: proj.path_with_namespace,
             icon: FolderGit2,
             action: () => { onClose(); onFilterProject(String(proj.id)); },
@@ -211,10 +215,10 @@ export default function CommandPalette({
         }
       });
 
-    // 5. Matching Tasks (search across title, iid, project name)
+    // 5. Matching Tasks
     const matchingTasks = tasks
       .filter((t) => {
-        if (!q) return false; // only show tasks if user is actively searching
+        if (!q) return false;
         const titleMatch = t.title?.toLowerCase().includes(q);
         const iidMatch = String(t.iid).includes(q) || `#${t.iid}`.includes(q);
         const proj = projectMap.get(t.project_id);
@@ -233,9 +237,8 @@ export default function CommandPalette({
         id: `task-${task.project_id}-${task.iid}`,
         category: 'Tasks',
         title: task.title,
-        subtitle: `${projName} • #${task.iid}${task.due_date ? ` • Due ${task.due_date}` : ''}`,
+        subtitle: `${projName} · #${task.iid}${task.due_date ? ` · Due ${task.due_date}` : ''}`,
         badge: statusObj?.label || statusKey,
-        badgeColor: statusObj?.color || '#94a3b8',
         action: () => {
           onClose();
           onSelectTask(task);
@@ -305,7 +308,7 @@ export default function CommandPalette({
   // Group items by category
   const groupedItems = useMemo(() => {
     const groups: { category: string; items: PaletteItem[] }[] = [];
-    const catOrder = ['Actions', 'Views', 'Tasks', 'Statuses', 'Projects'];
+    const catOrder = ['Commands', 'Views', 'Tasks', 'Filter by Project', 'Filter by Status'];
 
     catOrder.forEach((cat) => {
       const list = items.filter((i) => i.category === cat);
@@ -317,23 +320,22 @@ export default function CommandPalette({
     return groups;
   }, [items]);
 
-  // Track global index for flat arrow navigation
   let itemCounter = -1;
 
   return (
     <Dialog open={open} onOpenChange={(val) => !val && onClose()}>
       <DialogContent
         aria-describedby={undefined}
-        className="fixed top-[15%] left-1/2 -translate-x-1/2 w-[92vw] max-w-2xl bg-[var(--surface)] border border-[var(--border)] rounded-2xl shadow-2xl overflow-hidden z-50 animate-scale-in text-[var(--text-1)] backdrop-blur-xl"
+        className="fixed top-[15%] left-1/2 -translate-x-1/2 w-[92vw] max-w-xl bg-[var(--surface)] border border-[var(--border)] rounded-xl shadow-xl overflow-hidden z-50 animate-scale-in text-[var(--text-1)]"
         onKeyDown={handleKeyDown}
       >
         <VisuallyHidden>
           <DialogTitle>Command Palette</DialogTitle>
         </VisuallyHidden>
 
-        {/* Input Bar */}
-        <div className="flex items-center gap-3 px-4 py-3.5 border-b border-[var(--border)] bg-[var(--surface-2)]/30">
-          <Command className="h-5 w-5 text-[var(--accent)] shrink-0" />
+        {/* Input Bar - Clean, subtle, professional */}
+        <div className="flex items-center gap-2.5 px-3.5 py-2.5 border-b border-[var(--border)] bg-[var(--surface)]">
+          <Search className="h-4 w-4 text-[var(--text-3)] shrink-0" />
           <input
             ref={inputRef}
             type="text"
@@ -342,39 +344,40 @@ export default function CommandPalette({
               setQuery(e.target.value);
               setSelectedIndex(0);
             }}
-            placeholder="Type a command, task title, #iid, or project name..."
-            className="flex-1 bg-transparent text-sm text-[var(--text-1)] placeholder-[var(--text-3)] focus:outline-none"
+            placeholder="Type a command, task title, #iid, or project..."
+            className="flex-1 bg-transparent text-xs text-[var(--text-1)] placeholder-[var(--text-3)] focus:outline-none"
           />
-          {query && (
+          {query ? (
             <button
               onClick={() => {
                 setQuery('');
                 setSelectedIndex(0);
                 inputRef.current?.focus();
               }}
-              className="text-xs text-[var(--text-3)] hover:text-[var(--text-1)] px-1.5 py-0.5 rounded cursor-pointer"
+              className="text-xs text-[var(--text-3)] hover:text-[var(--text-1)] p-1 rounded cursor-pointer"
             >
-              Clear
+              <X className="h-3.5 w-3.5" />
             </button>
+          ) : (
+            <kbd className="hidden sm:inline-block px-1.5 py-0.5 text-[10px] font-mono text-[var(--text-3)] bg-[var(--surface-2)] border border-[var(--border)] rounded">
+              ESC
+            </kbd>
           )}
-          <kbd className="hidden sm:inline-block px-1.5 py-0.5 text-[10px] font-mono font-semibold text-[var(--text-3)] bg-[var(--surface)] border border-[var(--border)] rounded shadow-xs">
-            ESC
-          </kbd>
         </div>
 
-        {/* Items List */}
+        {/* Items List - Clean neutral hover, no loud colors */}
         <div
           ref={listRef}
-          className="max-h-[380px] overflow-y-auto p-2 space-y-3 focus:outline-none"
+          className="max-h-[340px] overflow-y-auto p-1.5 space-y-2 focus:outline-none"
         >
           {items.length === 0 ? (
-            <div className="py-12 text-center text-[var(--text-3)] text-sm">
-              No matching commands or tasks found for &ldquo;{query}&rdquo;
+            <div className="py-10 text-center text-[var(--text-3)] text-xs">
+              No matching commands or tasks found
             </div>
           ) : (
             groupedItems.map((group) => (
-              <div key={group.category} className="space-y-1">
-                <div className="px-3 pt-1 pb-1 text-[10px] font-bold uppercase tracking-wider text-[var(--text-3)]">
+              <div key={group.category} className="space-y-0.5">
+                <div className="px-2.5 pt-1.5 pb-0.5 text-[10px] font-semibold uppercase tracking-wider text-[var(--text-3)]">
                   {group.category}
                 </div>
                 {group.items.map((item) => {
@@ -389,34 +392,20 @@ export default function CommandPalette({
                       onClick={item.action}
                       onMouseEnter={() => setSelectedIndex(itemCounter)}
                       className={cn(
-                        'flex items-center justify-between px-3 py-2 rounded-xl text-xs transition-colors cursor-pointer select-none',
+                        'flex items-center justify-between px-2.5 py-1.5 rounded-lg text-xs transition-colors cursor-pointer select-none',
                         isSelected
-                          ? 'bg-[var(--accent)] text-white shadow-xs'
-                          : 'hover:bg-[var(--surface-2)] text-[var(--text-1)]'
+                          ? 'bg-[var(--surface-2)] text-[var(--text-1)] border border-[var(--border)]'
+                          : 'text-[var(--text-2)] hover:bg-[var(--surface-2)]/60 hover:text-[var(--text-1)] border border-transparent'
                       )}
                     >
-                      <div className="flex items-center gap-2.5 min-w-0 pr-2">
+                      <div className="flex items-center gap-2 min-w-0 pr-2">
                         {Icon && (
-                          <div
-                            className={cn(
-                              'h-6 w-6 rounded-lg flex items-center justify-center shrink-0',
-                              isSelected
-                                ? 'bg-white/20 text-white'
-                                : 'bg-[var(--surface-3)] text-[var(--text-2)]'
-                            )}
-                          >
-                            <Icon className="h-3.5 w-3.5" />
-                          </div>
+                          <Icon className={cn('h-3.5 w-3.5 shrink-0', isSelected ? 'text-[var(--text-1)]' : 'text-[var(--text-3)]')} />
                         )}
                         <div className="min-w-0">
-                          <div className="font-medium truncate">{item.title}</div>
+                          <div className="font-medium truncate leading-tight">{item.title}</div>
                           {item.subtitle && (
-                            <div
-                              className={cn(
-                                'text-[11px] truncate',
-                                isSelected ? 'text-white/80' : 'text-[var(--text-3)]'
-                              )}
-                            >
+                            <div className="text-[11px] text-[var(--text-3)] truncate leading-tight mt-0.5">
                               {item.subtitle}
                             </div>
                           )}
@@ -424,23 +413,17 @@ export default function CommandPalette({
                       </div>
 
                       <div className="flex items-center gap-2 shrink-0">
+                        {item.shortcut && (
+                          <kbd className="px-1.5 py-0.5 rounded text-[10px] font-mono text-[var(--text-3)] bg-[var(--surface-2)] border border-[var(--border)]">
+                            {item.shortcut}
+                          </kbd>
+                        )}
                         {item.badge && (
-                          <span
-                            className={cn(
-                              'px-2 py-0.5 rounded-full text-[10px] font-medium border',
-                              isSelected
-                                ? 'border-white/30 text-white bg-white/10'
-                                : 'border-[var(--border)] text-[var(--text-2)] bg-[var(--surface-2)]'
-                            )}
-                            style={{
-                              borderColor: isSelected ? undefined : item.badgeColor,
-                              color: isSelected ? undefined : item.badgeColor,
-                            }}
-                          >
+                          <span className="px-1.5 py-0.5 rounded text-[10px] text-[var(--text-3)] bg-[var(--surface-2)] border border-[var(--border)]">
                             {item.badge}
                           </span>
                         )}
-                        {isSelected && <ArrowRight className="h-3.5 w-3.5 text-white/80 shrink-0" />}
+                        {isSelected && <ArrowRight className="h-3 w-3 text-[var(--text-3)] shrink-0" />}
                       </div>
                     </div>
                   );
@@ -450,20 +433,16 @@ export default function CommandPalette({
           )}
         </div>
 
-        {/* Footer info bar */}
-        <div className="flex items-center justify-between px-4 py-2 bg-[var(--surface-2)]/60 border-t border-[var(--border)] text-[10px] text-[var(--text-3)] select-none">
-          <div className="flex items-center gap-3">
-            <span className="flex items-center gap-1">
-              <kbd className="px-1 py-0.5 bg-[var(--surface)] border border-[var(--border)] rounded font-mono">↑</kbd>
-              <kbd className="px-1 py-0.5 bg-[var(--surface)] border border-[var(--border)] rounded font-mono">↓</kbd>
-              Navigate
-            </span>
-            <span className="flex items-center gap-1">
-              <kbd className="px-1.5 py-0.5 bg-[var(--surface)] border border-[var(--border)] rounded font-mono">↵</kbd>
-              Select
-            </span>
+        {/* Footer - Minimalist and subtle */}
+        <div className="flex items-center justify-between px-3 py-1.5 bg-[var(--surface-2)]/40 border-t border-[var(--border)] text-[10px] text-[var(--text-3)] select-none">
+          <div className="flex items-center gap-2">
+            <span>↑↓ navigate</span>
+            <span>·</span>
+            <span>↵ select</span>
+            <span>·</span>
+            <span>esc close</span>
           </div>
-          <span>Omnibar Command Center</span>
+          <span className="font-mono">Command Menu</span>
         </div>
       </DialogContent>
     </Dialog>
