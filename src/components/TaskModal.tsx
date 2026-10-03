@@ -218,10 +218,13 @@ export default function TaskModal({ open, onClose, editIssue = null }: TaskModal
 
     try {
       if (isEditing) {
-        // If user changed the project, move task to the new project!
+        // If user changed the project, move task to the new project (delete old task & create new one)!
         if (String(editIssue.project_id) !== String(form.project_id)) {
-          await moveTask(editIssue.project_id, editIssue.iid, form.project_id, payload);
-          toast({ type: 'success', message: '✓ Task moved to new project' });
+          const newIssue = await moveTask(editIssue.project_id, editIssue.iid, form.project_id, payload);
+          if (newIssue?.iid && form.status) {
+            await setTaskStatus(Number(form.project_id), newIssue.iid, form.status);
+          }
+          toast({ type: 'success', message: '✓ Task moved to new project (old task deleted)' });
         } else {
           await updateTask(editIssue.project_id, editIssue.iid, payload);
           if (form.status) {
@@ -351,8 +354,8 @@ export default function TaskModal({ open, onClose, editIssue = null }: TaskModal
               />
             </div>
             {isEditing && String(form.project_id) !== String(editIssue.project_id) && (
-              <p className="text-[10px] text-[var(--accent)] mt-1">
-                Note: Changing project will move this task to the selected project.
+              <p className="text-[10px] text-amber-500 font-medium mt-1">
+                Note: Changing project will create this task in the selected project and delete it from the old project.
               </p>
             )}
           </div>

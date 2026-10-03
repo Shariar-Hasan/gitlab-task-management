@@ -268,6 +268,9 @@ export const localStore = {
   // Custom Statuses — stored as { "projectId_iid": "ongoing" | "testing" | "pending" | "backlog" | "open" | "close" }
   getCustomStatuses: (): Record<string, string> => get(KEYS.customStatuses, {}) ?? {},
   setCustomStatuses: (map: Record<string, string>) => set(KEYS.customStatuses, map),
+  getCustomStatus(projectId: string | number, iid: string | number): string | undefined {
+    return this.getCustomStatuses()[`${projectId}_${iid}`];
+  },
   setCustomStatus(projectId: string | number, iid: string | number, status: string): Record<string, string> {
     const map = this.getCustomStatuses();
     const key = `${projectId}_${iid}`;
