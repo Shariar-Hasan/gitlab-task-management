@@ -1,7 +1,31 @@
-import React, { useState, useRef, useEffect, useMemo } from 'react';
+import React, { useState, useRef, useEffect, useMemo, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
-import { ChevronDown, Check, X, Search, CheckSquare, Square } from 'lucide-react';
-import { cn } from '../../lib/utils.js';
+import { ChevronDown, Check, X, Search } from 'lucide-react';
+import { cn } from '../../lib/utils';
+
+export interface FilterOption {
+  value: string | number;
+  label: string;
+  subtitle?: string;
+  color?: string;
+  icon?: ReactNode;
+  [key: string]: any;
+}
+
+export interface FilterSelectProps {
+  id?: string;
+  value?: any;
+  onChange: (val: any) => void;
+  options?: FilterOption[];
+  placeholder?: string;
+  label?: string;
+  icon?: any;
+  allLabel?: string;
+  searchable?: boolean;
+  searchPlaceholder?: string;
+  width?: number;
+  isMulti?: boolean;
+}
 
 export function FilterSelect({
   id,
@@ -16,12 +40,13 @@ export function FilterSelect({
   searchPlaceholder = 'Search...',
   width = 240,
   isMulti = false,
-}) {
+}: FilterSelectProps) {
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState('');
   const [pos, setPos] = useState({ top: 0, left: 0 });
-  const anchorRef = useRef(null);
-  const searchInputRef = useRef(null);
+  const anchorRef = useRef<HTMLButtonElement>(null);
+  const popoverRef = useRef<HTMLDivElement>(null);
+  const searchInputRef = useRef<HTMLInputElement>(null);
 
   // Multi-select helpers
   const selectedValues = useMemo(() => {
@@ -60,14 +85,28 @@ export function FilterSelect({
     }, 50);
   }, [open, width]);
 
-  // Close on Escape
+  // Close on Escape or Outside click with capture
   useEffect(() => {
     if (!open) return;
-    const handleKeyDown = (e) => {
+    const handleOutside = (e: MouseEvent | TouchEvent) => {
+      const target = e.target as Node;
+      if (popoverRef.current && popoverRef.current.contains(target)) return;
+      if (anchorRef.current && anchorRef.current.contains(target)) return;
+      setOpen(false);
+    };
+
+    const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') setOpen(false);
     };
+
+    document.addEventListener('mousedown', handleOutside, true);
+    document.addEventListener('touchstart', handleOutside, true);
     window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
+    return () => {
+      document.removeEventListener('mousedown', handleOutside, true);
+      document.removeEventListener('touchstart', handleOutside, true);
+      window.removeEventListener('keydown', handleKeyDown);
+    };
   }, [open]);
 
   // Filtered options by search
@@ -79,14 +118,14 @@ export function FilterSelect({
     );
   }, [options, search]);
 
-  const handleSingleSelect = (val) => {
+  const handleSingleSelect = (val: any) => {
     onChange(val);
     setOpen(false);
   };
 
-  const handleMultiToggle = (val) => {
+  const handleMultiToggle = (val: any) => {
     const sVal = String(val);
-    let next;
+    let next: string[];
     if (selectedValues.includes(sVal)) {
       next = selectedValues.filter((v) => v !== sVal);
     } else {
@@ -95,7 +134,7 @@ export function FilterSelect({
     onChange(next);
   };
 
-  const handleClear = (e) => {
+  const handleClear = (e: React.MouseEvent) => {
     e.stopPropagation();
     if (isMulti) {
       onChange([]);
@@ -145,7 +184,7 @@ export function FilterSelect({
               <span>selected</span>
             </span>
           )
-        ) : hasSelection ? (
+        ) : hasSelection && singleSelectedOption ? (
           <span className="font-semibold text-[var(--text-1)] max-w-[140px] truncate flex items-center gap-1.5">
             {singleSelectedOption.icon ? (
               singleSelectedOption.icon
@@ -184,9 +223,10 @@ export function FilterSelect({
       {open &&
         createPortal(
           <>
-            <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
+            <div className="fixed inset-0 z-[9990]" onMouseDown={() => setOpen(false)} />
             <div
-              className="fixed z-50 animate-fade-in rounded-xl border border-[var(--border)] bg-[var(--surface)] shadow-[var(--shadow-modal)] overflow-hidden flex flex-col max-h-[340px]"
+              ref={popoverRef}
+              className="fixed z-[9995] animate-fade-in rounded-xl border border-[var(--border)] bg-[var(--surface)] shadow-[var(--shadow-modal)] overflow-hidden flex flex-col max-h-[340px]"
               style={{ top: pos.top, left: pos.left, width }}
             >
               {/* Optional Search bar */}
@@ -303,12 +343,14 @@ export function FilterSelect({
                             />
                           ) : null}
 
-                          <span className="truncate">{opt.label}</span>
-                          {opt.subtitle && (
-                            <span className="text-[10px] text-[var(--text-3)] truncate ml-1 max-w-[100px]">
-                              {opt.subtitle}
-                            </span>
-                          )}
+                          <div className="flex flex-col min-w-0 text-left">
+                            <span className="truncate leading-tight font-medium">{opt.label}</span>
+                            {opt.subtitle && (
+                              <span className="text-[10px] text-[var(--text-3)] truncate leading-tight mt-0.5 max-w-[200px]">
+                                {opt.subtitle}
+                              </span>
+                            )}
+                          </div>
                         </span>
                         {!isMulti && active && (
                           <Check className="h-3.5 w-3.5 text-[var(--accent)] shrink-0" />

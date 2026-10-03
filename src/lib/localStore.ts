@@ -1,0 +1,597 @@
+/**
+ * localStorage persistence layer for GitLab Task Manager
+ * Strategy: localStorage is the single source of truth for issue data.
+ * API calls only happen on first load or explicit force-refresh.
+ */
+
+const PREFIX = 'gtm_ls_';
+
+const KEYS = {
+  issues:           `${PREFIX}issues`,
+  projects:         `${PREFIX}projects`,
+  pinned:           `${PREFIX}pinned`,
+  settings:         `${PREFIX}settings`,
+  lastFetchedAt:    `${PREFIX}last_fetched_at`,
+  globalLabels:     `${PREFIX}global_labels`,
+  customStatuses:   `${PREFIX}custom_statuses`,
+  projectOverrides: `${PREFIX}project_overrides`,   // { [id]: { customName, enabled } }
+  templates:        `${PREFIX}templates`,            // description templates
+  activeFilters:    `${PREFIX}active_filters`,      // persisted active filters
+  lastUpdateCheck:  `${PREFIX}last_update_check`,   // timestamp
+  latestVersion:    `${PREFIX}latest_version`,      // latest release version string
+  updateDownloadUrl: `${PREFIX}update_download_url`, // direct download asset URL
+  updateReleaseUrl:  `${PREFIX}update_release_url`,  // release notes URL
+  dismissedUpdateVersion: `${PREFIX}dismissed_update_version`, // dismissed update tag
+  boardStatuses:        `${PREFIX}board_statuses`,      // board view statuses configuration
+  taskSequence:         `${PREFIX}task_sequence`,       // manual task sequence order string[]
+  tableVisibleColumns:  `${PREFIX}table_visible_columns`,
+  boardVisibleColumns:  `${PREFIX}board_visible_columns`,
+};
+
+export interface TableVisibleColumns {
+  project: boolean;
+  title: boolean;
+  state: boolean;
+  assignees: boolean;
+  labels: boolean;
+  due_date: boolean;
+  created_at: boolean;
+}
+
+export const DEFAULT_TABLE_VISIBLE_COLUMNS: TableVisibleColumns = {
+  project: true,
+  title: true,
+  state: true,
+  assignees: true,
+  labels: true,
+  due_date: true,
+  created_at: true,
+};
+
+export interface BoardVisibleColumns {
+  project: boolean;
+  status: boolean;
+  dueDate: boolean;
+  labels: boolean;
+  assignees: boolean;
+}
+
+export const DEFAULT_BOARD_VISIBLE_COLUMNS: BoardVisibleColumns = {
+  project: true,
+  status: true,
+  dueDate: true,
+  labels: true,
+  assignees: true,
+};
+
+export const CLOSED_CUTOFF_DAYS = 30;
+
+export interface BoardStatusConfig {
+  id: string;
+  label: string;
+  color: string;
+  enabled: boolean;
+  isSystem?: boolean; // true for 'open' and 'close'
+  dotClass?: string;
+}
+
+export type TaskStatus = BoardStatusConfig;
+
+// ── Default Board Statuses (open & close are GitLab system statuses) ─────────
+export const DEFAULT_BOARD_STATUSES: BoardStatusConfig[] = [
+  { id: 'open',    label: 'Open',    color: '#10b981', enabled: true,  isSystem: true,  dotClass: 'bg-emerald-500' },
+  { id: 'ongoing', label: 'Ongoing', color: '#06b6d4', enabled: true,  isSystem: false, dotClass: 'bg-cyan-500' },
+  { id: 'testing', label: 'Testing', color: '#ec4899', enabled: true,  isSystem: false, dotClass: 'bg-pink-500' },
+  { id: 'pending', label: 'Pending', color: '#f59e0b', enabled: true,  isSystem: false, dotClass: 'bg-amber-500' },
+  { id: 'backlog', label: 'Backlog', color: '#8b5cf6', enabled: true,  isSystem: false, dotClass: 'bg-purple-500' },
+  { id: 'close',   label: 'Closed',  color: '#64748b', enabled: true,  isSystem: true,  dotClass: 'bg-slate-500' },
+];
+
+export function getEffectiveStatus(issue: any, customStatusesMap: Record<string, string> = {}): string {
+  const key = `${issue.project_id}_${issue.iid}`;
+  const custom = customStatusesMap[key];
+  if (custom) return custom;
+  return issue.state === 'closed' ? 'close' : 'open';
+}
+
+export interface GlobalLabelDef {
+  id: string;
+  name: string;
+  color: string;
+  description: string;
+}
+
+// ── Default Global Labels ─────────────────────────────────────────────────────
+export const DEFAULT_GLOBAL_LABELS: GlobalLabelDef[] = [
+  { id: 'gl-bug',     name: 'Bug',           color: '#ef4444', description: 'Defects or unexpected issues' },
+  { id: 'gl-feat',    name: 'Feature',       color: '#3b82f6', description: 'New feature development' },
+  { id: 'gl-urgent',  name: 'Urgent',        color: '#f59e0b', description: 'High priority / blocker' },
+  { id: 'gl-polish',  name: 'Improvement',   color: '#8b5cf6', description: 'Refinement, polish, refactor' },
+  { id: 'gl-docs',    name: 'Documentation', color: '#10b981', description: 'Docs and guides' },
+  { id: 'gl-review',  name: 'Review',        color: '#ec4899', description: 'Code or design review needed' },
+];
+
+// ── safe JSON helpers ─────────────────────────────────────────────────────────
+function get<T = any>(key: string, fallback: T | null = null): T | null {
+  try {
+    const raw = localStorage.getItem(key);
+    return raw !== null ? JSON.parse(raw) : fallback;
+  } catch { return fallback; }
+}
+
+function set(key: string, value: any): boolean {
+  try { localStorage.setItem(key, JSON.stringify(value)); return true; }
+  catch { return false; }
+}
+
+export interface TemplateItem {
+  id: string;
+  name: string;
+  content: string;
+}
+
+// ── Default description templates ────────────────────────────────────────────
+export const DEFAULT_TEMPLATES: TemplateItem[] = [
+  {
+    id: 'tpl-bug',
+    name: 'Bug Report',
+    content: `## Bug Description\n\nA clear description of what the bug is.\n\n## Steps to Reproduce\n\n1. Go to ...\n2. Click on ...\n3. See error\n\n## Expected Behavior\n\nWhat should have happened.\n\n## Actual Behavior\n\nWhat actually happened.\n\n## Screenshots / Logs\n\n(Paste screenshots or error logs here)`,
+  },
+  {
+    id: 'tpl-feature',
+    name: 'Feature Request',
+    content: `## Feature Description\n\nBrief summary of the feature.\n\n## Problem / Motivation\n\nWhat problem does this solve?\n\n## Proposed Solution\n\nHow should it work?\n\n## Acceptance Criteria\n\n- [ ] Criterion 1\n- [ ] Criterion 2`,
+  },
+  {
+    id: 'tpl-task',
+    name: 'General Task',
+    content: `## Task Overview\n\nBrief description of what needs to be done.\n\n## Checklist\n\n- [ ] Step 1\n- [ ] Step 2\n- [ ] Review & Test\n\n## Notes\n\n(Additional context here)`,
+  },
+];
+
+export interface AppSettings {
+  autoAssignOnCreate: boolean;
+  timeFormat: 'relative' | 'absolute' | string;
+  clockFormat: '12h' | '24h' | string;
+  dateFormat: string;
+  retentionDays: number;
+  compactTable: boolean;
+  defaultFilterProjects: string[];
+  defaultFilterStatus: string[];
+  defaultFilterLabels: string[];
+  accentColor: string;
+  persistFilters: boolean;
+  updateCheckHours: number;
+  githubRepo: string;
+  viewMode: 'table' | 'board' | string;
+  boardColumns: string[];
+  undoPeriod: number; // grace period in seconds for major changes (default 5, 0 to disable)
+  cloudSyncEnabled: boolean;
+  cloudSyncFrequency: 'on_change' | '1h' | '1d';
+  cloudSyncLastSynced: string | null;
+  cloudSyncRepoName?: string;
+  [key: string]: any;
+}
+
+// ── Default settings ──────────────────────────────────────────────────────────
+export const DEFAULT_SETTINGS: AppSettings = {
+  autoAssignOnCreate: false,
+  timeFormat: 'relative',    // 'relative' | 'absolute'
+  clockFormat: '12h',        // '12h' | '24h'
+  dateFormat: 'MMM d, yyyy', // 'MMM d, yyyy' | 'yyyy-MM-dd' | 'dd/MM/yyyy'
+  retentionDays: 30,         // days before pruning closed issues
+  compactTable: false,
+  defaultFilterProjects: [],  // string project IDs
+  defaultFilterStatus: [],    // multi-select: array of status IDs e.g. ['open', 'ongoing'] or [] for all
+  defaultFilterLabels: [],    // string label names
+  accentColor: '#10b981',     // custom accent color hex
+  persistFilters: true,       // save active filters across reload
+  updateCheckHours: 4,        // how many hours between update checks
+  githubRepo: 'Shariar-Hasan/gitlab-task-management', // github repo for version check
+  viewMode: 'table',          // 'table' | 'board'
+  boardColumns: ['open', 'ongoing', 'testing', 'pending', 'backlog', 'close'],
+  undoPeriod: 5,              // default 5s undo period on major changes
+  cloudSyncEnabled: false,    // by default off
+  cloudSyncFrequency: 'on_change', // 'on_change' | '1h' | '1d'
+  cloudSyncLastSynced: null,
+  cloudSyncRepoName: '',
+};
+
+// ── Accent Color Applicator ───────────────────────────────────────────────────
+export function applyAccentColor(hex: string): void {
+  if (!hex || typeof hex !== 'string') return;
+  const clean = hex.startsWith('#') ? hex : `#${hex}`;
+  if (!/^#[0-9a-fA-F]{6}$/.test(clean)) return;
+
+  const root = document.documentElement;
+  root.style.setProperty('--accent', clean);
+  root.style.setProperty('--accent-hover', clean);
+  root.style.setProperty('--accent-muted', `${clean}1f`);
+  root.style.setProperty('--accent-glow', `0 0 14px ${clean}33`);
+}
+
+export interface ProjectOverride {
+  customName?: string;
+  enabled?: boolean;
+}
+
+export interface ActiveFilters {
+  filterProjects: string[];
+  filterStatus: string[];
+  filterLabels: string[];
+  globalFilter: string;
+  assignedToMe: boolean;
+}
+
+// ── Public API ─────────────────────────────────────────────────────────────────
+export const localStore = {
+  // Issues
+  getIssues:    (): any[] => get(KEYS.issues, []) ?? [],
+  setIssues:    (issues: any[]) => set(KEYS.issues, issues),
+
+  // Projects
+  getProjects:  (): any[] => get(KEYS.projects, []) ?? [],
+  setProjects:  (projects: any[]) => set(KEYS.projects, projects),
+
+  // Last fetched timestamp
+  getLastFetchedAt: (): number | null => get(KEYS.lastFetchedAt, null),
+  setLastFetchedAt: (ts: number = Date.now()) => set(KEYS.lastFetchedAt, ts),
+  hasEverFetched:   (): boolean => get(KEYS.lastFetchedAt, null) !== null,
+
+  // Pinned tasks — stored as "projectId_iid" strings
+  getPinned: (): Set<string> => new Set(get<string[]>(KEYS.pinned, []) ?? []),
+  setPinned: (pinned: Set<string> | string[]) => set(KEYS.pinned, [...pinned]),
+  togglePin(projectId: string | number, iid: string | number): Set<string> {
+    const key = `${projectId}_${iid}`;
+    const pinned = this.getPinned();
+    pinned.has(key) ? pinned.delete(key) : pinned.add(key);
+    this.setPinned(pinned);
+    return pinned;
+  },
+  isPinned: (projectId: string | number, iid: string | number): boolean => localStore.getPinned().has(`${projectId}_${iid}`),
+
+  // Global Labels
+  getGlobalLabels: (): GlobalLabelDef[] => {
+    const saved = get<GlobalLabelDef[]>(KEYS.globalLabels, null);
+    if (!saved || !Array.isArray(saved) || saved.length === 0) {
+      set(KEYS.globalLabels, DEFAULT_GLOBAL_LABELS);
+      return DEFAULT_GLOBAL_LABELS;
+    }
+    return saved;
+  },
+  setGlobalLabels: (labels: GlobalLabelDef[]) => set(KEYS.globalLabels, labels),
+  resetGlobalLabels: (): GlobalLabelDef[] => {
+    set(KEYS.globalLabels, DEFAULT_GLOBAL_LABELS);
+    return DEFAULT_GLOBAL_LABELS;
+  },
+
+  // Custom Statuses — stored as { "projectId_iid": "ongoing" | "testing" | "pending" | "backlog" | "open" | "close" }
+  getCustomStatuses: (): Record<string, string> => get(KEYS.customStatuses, {}) ?? {},
+  setCustomStatuses: (map: Record<string, string>) => set(KEYS.customStatuses, map),
+  setCustomStatus(projectId: string | number, iid: string | number, status: string): Record<string, string> {
+    const map = this.getCustomStatuses();
+    const key = `${projectId}_${iid}`;
+    map[key] = status;
+    this.setCustomStatuses(map);
+    return map;
+  },
+  deleteCustomStatus(projectId: string | number, iid: string | number): Record<string, string> {
+    const map = this.getCustomStatuses();
+    const key = `${projectId}_${iid}`;
+    delete map[key];
+    this.setCustomStatuses(map);
+    return map;
+  },
+
+  // App settings
+  getSettings: (): AppSettings => {
+    const raw = get<Partial<AppSettings>>(KEYS.settings, {}) ?? {};
+    const merged = { ...DEFAULT_SETTINGS, ...raw };
+    if (raw.cloudSyncEnabled === undefined) {
+      merged.cloudSyncEnabled = false;
+    }
+    // Normalize defaultFilterStatus to array
+    if ((merged.defaultFilterStatus as any) === 'all' || !merged.defaultFilterStatus) {
+      merged.defaultFilterStatus = [];
+    } else if (typeof merged.defaultFilterStatus === 'string') {
+      merged.defaultFilterStatus = [merged.defaultFilterStatus];
+    }
+    return merged;
+  },
+  setSettings: (s: AppSettings) => set(KEYS.settings, s),
+  updateSettings(patch: Partial<AppSettings>): AppSettings {
+    const updated = { ...this.getSettings(), ...patch };
+    this.setSettings(updated);
+    return updated;
+  },
+
+  /**
+   * Remove closed issues older than retentionDays (default 30) from an array.
+   * Called on every page load so stale data never accumulates.
+   */
+  pruneStaleClosedIssues(issues: any[]): any[] {
+    const settings = this.getSettings();
+    const days = settings.retentionDays || CLOSED_CUTOFF_DAYS;
+    const cutoff = Date.now() - days * 24 * 60 * 60 * 1000;
+    return issues.filter((i) => {
+      if (i.state !== 'closed') return true;
+      const closedAt = new Date(i.closed_at || i.updated_at || 0).getTime();
+      return closedAt >= cutoff;
+    });
+  },
+
+  // ── Project Overrides (custom names + enabled/disabled) ──────────────────────
+  getProjectOverrides: (): Record<string, ProjectOverride> => get(KEYS.projectOverrides, {}) ?? {},
+  setProjectOverrides: (overrides: Record<string, ProjectOverride>) => set(KEYS.projectOverrides, overrides),
+  updateProjectOverride(projectId: string | number, patch: Partial<ProjectOverride>): Record<string, ProjectOverride> {
+    const map = this.getProjectOverrides();
+    map[String(projectId)] = { ...(map[String(projectId)] || {}), ...patch };
+    this.setProjectOverrides(map);
+    return map;
+  },
+
+  // ── Description Templates ─────────────────────────────────────────────────
+  getTemplates: (): TemplateItem[] => {
+    const saved = get<TemplateItem[]>(KEYS.templates, null);
+    if (!saved || !Array.isArray(saved) || saved.length === 0) {
+      set(KEYS.templates, DEFAULT_TEMPLATES);
+      return DEFAULT_TEMPLATES;
+    }
+    return saved;
+  },
+  setTemplates: (templates: TemplateItem[]) => set(KEYS.templates, templates),
+  resetTemplates: (): TemplateItem[] => {
+    set(KEYS.templates, DEFAULT_TEMPLATES);
+    return DEFAULT_TEMPLATES;
+  },
+
+  // ── Persistent Active Filters ─────────────────────────────────────────────
+  getActiveFilters: (): ActiveFilters => get(KEYS.activeFilters, {
+    filterProjects: [],
+    filterStatus: [],
+    filterLabels: [],
+    globalFilter: '',
+    assignedToMe: false,
+  }) ?? {
+    filterProjects: [],
+    filterStatus: [],
+    filterLabels: [],
+    globalFilter: '',
+    assignedToMe: false,
+  },
+  setActiveFilters: (filters: ActiveFilters) => set(KEYS.activeFilters, filters),
+
+  // ── Version / Update Check ────────────────────────────────────────────────
+  getLastUpdateCheck: (): number | null => get(KEYS.lastUpdateCheck, null),
+  setLastUpdateCheck: (ts: number = Date.now()) => set(KEYS.lastUpdateCheck, ts),
+  getLatestVersion: (): string | null => get(KEYS.latestVersion, null),
+  setLatestVersion: (v: string | null) => set(KEYS.latestVersion, v),
+  getUpdateDownloadUrl: (): string | null => get(KEYS.updateDownloadUrl, null),
+  setUpdateDownloadUrl: (v: string | null) => set(KEYS.updateDownloadUrl, v),
+  getUpdateReleaseUrl: (): string | null => get(KEYS.updateReleaseUrl, null),
+  setUpdateReleaseUrl: (v: string | null) => set(KEYS.updateReleaseUrl, v),
+  getDismissedUpdateVersion: (): string | null => get(KEYS.dismissedUpdateVersion, null),
+  setDismissedUpdateVersion: (v: string | null) => set(KEYS.dismissedUpdateVersion, v),
+
+  // ── Board View Statuses ───────────────────────────────────────────────────
+  getBoardStatuses(): BoardStatusConfig[] {
+    const saved = get<BoardStatusConfig[]>(KEYS.boardStatuses, null);
+    if (!saved || !Array.isArray(saved) || saved.length === 0) {
+      set(KEYS.boardStatuses, DEFAULT_BOARD_STATUSES);
+      return DEFAULT_BOARD_STATUSES;
+    }
+    // Guarantee 'open' and 'close' always exist and are marked isSystem
+    let list = saved.map((s) => (s.id === 'open' || s.id === 'close' ? { ...s, isSystem: true } : s));
+    if (!list.some((s) => s.id === 'open')) {
+      list = [{ id: 'open', label: 'Open', color: '#10b981', enabled: true, isSystem: true, dotClass: 'bg-emerald-500' }, ...list];
+    }
+    if (!list.some((s) => s.id === 'close')) {
+      list = [...list, { id: 'close', label: 'Closed', color: '#64748b', enabled: true, isSystem: true, dotClass: 'bg-slate-500' }];
+    }
+    return list;
+  },
+
+  setBoardStatuses(statuses: BoardStatusConfig[]): BoardStatusConfig[] {
+    let sanitized = statuses.map((s) => (s.id === 'open' || s.id === 'close' ? { ...s, isSystem: true } : s));
+    if (!sanitized.some((s) => s.id === 'open')) {
+      sanitized = [{ id: 'open', label: 'Open', color: '#10b981', enabled: true, isSystem: true, dotClass: 'bg-emerald-500' }, ...sanitized];
+    }
+    if (!sanitized.some((s) => s.id === 'close')) {
+      sanitized = [...sanitized, { id: 'close', label: 'Closed', color: '#64748b', enabled: true, isSystem: true, dotClass: 'bg-slate-500' }];
+    }
+    set(KEYS.boardStatuses, sanitized);
+    TASK_STATUSES = sanitized;
+    return sanitized;
+  },
+
+  updateBoardStatus(id: string, patch: Partial<BoardStatusConfig>): BoardStatusConfig[] {
+    const current = this.getBoardStatuses();
+    const updated = current.map((s) => {
+      if (s.id !== id) return s;
+      // 'open' and 'close' cannot change id and cannot be deleted, but can be enabled/disabled and recolored
+      const cleanPatch = s.isSystem
+        ? { enabled: patch.enabled !== undefined ? patch.enabled : s.enabled, color: patch.color || s.color }
+        : patch;
+      return { ...s, ...cleanPatch };
+    });
+    return this.setBoardStatuses(updated);
+  },
+
+  addBoardStatus(label: string, color: string): BoardStatusConfig[] {
+    const trimmed = label.trim();
+    if (!trimmed) return this.getBoardStatuses();
+    const id = trimmed.toLowerCase().replace(/[^a-z0-9_]/g, '_').slice(0, 30) || `st_${Date.now()}`;
+    if (id === 'open' || id === 'close') return this.getBoardStatuses(); // Cannot create system statuses
+    const current = this.getBoardStatuses();
+    if (current.some((s) => s.id === id)) {
+      return this.updateBoardStatus(id, { label: trimmed, color, enabled: true });
+    }
+    const newStatus: BoardStatusConfig = {
+      id,
+      label: trimmed,
+      color: color || '#8b5cf6',
+      enabled: true,
+      isSystem: false,
+    };
+    return this.setBoardStatuses([...current, newStatus]);
+  },
+
+  deleteBoardStatus(id: string): BoardStatusConfig[] {
+    if (id === 'open' || id === 'close') return this.getBoardStatuses(); // Cannot delete system statuses!
+    const current = this.getBoardStatuses();
+    const filtered = current.filter((s) => s.id !== id);
+    return this.setBoardStatuses(filtered);
+  },
+
+  resetBoardStatuses(): BoardStatusConfig[] {
+    set(KEYS.boardStatuses, DEFAULT_BOARD_STATUSES);
+    TASK_STATUSES = DEFAULT_BOARD_STATUSES;
+    return DEFAULT_BOARD_STATUSES;
+  },
+
+  // ── Task Sequence / Custom Ordering ─────────────────────────────────────────
+  getTaskSequence(): string[] {
+    return get<string[]>(KEYS.taskSequence, []) || [];
+  },
+
+  setTaskSequence(sequence: string[]): string[] {
+    set(KEYS.taskSequence, sequence);
+    return sequence;
+  },
+
+  reorderTask(
+    draggedKey: string,
+    targetKey: string | null,
+    position: 'before' | 'after' = 'before',
+    allKeys?: string[],
+    forceSeed = false
+  ): string[] {
+    if (!draggedKey) {
+      return this.getTaskSequence();
+    }
+    if (targetKey && draggedKey === targetKey) {
+      return this.getTaskSequence();
+    }
+
+    let current = [...this.getTaskSequence()];
+
+    // If forceSeed is requested (e.g. from an actively sorted table), or if current sequence is empty
+    if (forceSeed && allKeys && allKeys.length > 0) {
+      current = [...allKeys];
+    } else if (allKeys && allKeys.length > 0) {
+      if (current.length === 0) {
+        current = [...allKeys];
+      } else {
+        // Ensure all visible keys are seeded in order if not in sequence yet
+        const set = new Set(current);
+        for (const k of allKeys) {
+          if (!set.has(k)) {
+            current.push(k);
+            set.add(k);
+          }
+        }
+      }
+    }
+
+    // Remove draggedKey from wherever it currently is
+    const filtered = current.filter((k) => k !== draggedKey);
+
+    if (!targetKey) {
+      // Empty column or no specific target
+      if (position === 'before') {
+        filtered.unshift(draggedKey);
+      } else {
+        filtered.push(draggedKey);
+      }
+    } else {
+      // Ensure targetKey is in filtered if somehow missing
+      if (!filtered.includes(targetKey)) {
+        filtered.push(targetKey);
+      }
+      const targetIdx = filtered.indexOf(targetKey);
+      const insertAt = position === 'before' ? targetIdx : targetIdx + 1;
+      filtered.splice(insertAt, 0, draggedKey);
+    }
+
+    return this.setTaskSequence(filtered);
+  },
+
+  // ── Visible Columns Settings ─────────────────────────────────────────────────
+  getTableVisibleColumns(): TableVisibleColumns {
+    return { ...DEFAULT_TABLE_VISIBLE_COLUMNS, ...(get<Partial<TableVisibleColumns>>(KEYS.tableVisibleColumns, {}) || {}) };
+  },
+
+  setTableVisibleColumns(cols: Partial<TableVisibleColumns>): TableVisibleColumns {
+    const current = this.getTableVisibleColumns();
+    const updated = { ...current, ...cols };
+    set(KEYS.tableVisibleColumns, updated);
+    return updated;
+  },
+
+  getBoardVisibleColumns(): BoardVisibleColumns {
+    return { ...DEFAULT_BOARD_VISIBLE_COLUMNS, ...(get<Partial<BoardVisibleColumns>>(KEYS.boardVisibleColumns, {}) || {}) };
+  },
+
+  setBoardVisibleColumns(cols: Partial<BoardVisibleColumns>): BoardVisibleColumns {
+    const current = this.getBoardVisibleColumns();
+    const updated = { ...current, ...cols };
+    set(KEYS.boardVisibleColumns, updated);
+    return updated;
+  },
+
+  // ── Cloud Backup Export & Import ─────────────────────────────────────────────
+  exportDataForBackup(): Record<string, any> {
+    return {
+      version: '1.0',
+      exportedAt: new Date().toISOString(),
+      settings: this.getSettings(),
+      boardStatuses: this.getBoardStatuses(),
+      customStatuses: this.getCustomStatuses(),
+      globalLabels: this.getGlobalLabels(),
+      templates: this.getTemplates(),
+      taskSequence: this.getTaskSequence(),
+      pinned: Array.from(this.getPinned()),
+      projectOverrides: this.getProjectOverrides(),
+      tableVisibleColumns: this.getTableVisibleColumns(),
+      boardVisibleColumns: this.getBoardVisibleColumns(),
+    };
+  },
+
+  importDataFromBackup(data: Record<string, any>): void {
+    if (!data || typeof data !== 'object') return;
+    if (data.settings) this.setSettings({ ...DEFAULT_SETTINGS, ...data.settings });
+    if (Array.isArray(data.boardStatuses)) this.setBoardStatuses(data.boardStatuses);
+    if (data.customStatuses && typeof data.customStatuses === 'object') this.setCustomStatuses(data.customStatuses);
+    if (Array.isArray(data.globalLabels)) this.setGlobalLabels(data.globalLabels);
+    if (Array.isArray(data.templates)) this.setTemplates(data.templates);
+    if (Array.isArray(data.taskSequence)) this.setTaskSequence(data.taskSequence);
+    if (Array.isArray(data.pinned)) this.setPinned(data.pinned);
+    if (data.projectOverrides && typeof data.projectOverrides === 'object') this.setProjectOverrides(data.projectOverrides);
+    if (data.tableVisibleColumns && typeof data.tableVisibleColumns === 'object') this.setTableVisibleColumns(data.tableVisibleColumns);
+    if (data.boardVisibleColumns && typeof data.boardVisibleColumns === 'object') this.setBoardVisibleColumns(data.boardVisibleColumns);
+  },
+
+  // Full wipe
+  clear(): void {
+    Object.values(KEYS).forEach((k) => localStorage.removeItem(k));
+  },
+};
+
+export function compareTaskSequence(
+  a: any,
+  b: any,
+  sequenceMap: Map<string, number>
+): number {
+  const aKey = `${a.project_id}_${a.iid}`;
+  const bKey = `${b.project_id}_${b.iid}`;
+  const aIdx = sequenceMap.has(aKey) ? sequenceMap.get(aKey)! : Number.MAX_SAFE_INTEGER;
+  const bIdx = sequenceMap.has(bKey) ? sequenceMap.get(bKey)! : Number.MAX_SAFE_INTEGER;
+  if (aIdx !== bIdx) return aIdx - bIdx;
+  // Fallback to created_at (newest first)
+  const aTime = new Date(a.created_at || a.createdAt || 0).getTime();
+  const bTime = new Date(b.created_at || b.createdAt || 0).getTime();
+  return bTime - aTime;
+}
+
+// ── Exported TASK_STATUSES (always in sync with localStore) ────────────────────
+export let TASK_STATUSES: BoardStatusConfig[] = localStore.getBoardStatuses();

@@ -1,37 +1,98 @@
-import React, { useState, useEffect } from 'react';
-import { Plus, X, Tag, Check, Calendar, FolderGit2, CircleDot, User, Loader2 } from 'lucide-react';
-import { Modal, ModalHeader, ModalBody, ModalFooter } from './ui/overlay.jsx';
-import { Button, Input, Label, Select, Badge } from './ui/index.jsx';
-import MarkdownEditor from './ui/MarkdownEditor.jsx';
-import { useToast } from './ui/overlay.jsx';
-import useStore from '../store/useStore.js';
-import { cn, getVisibleGlobalLabels, getDueDateInfo, getDueDateBadgeClass } from '../lib/utils.js';
-import { TASK_STATUSES, getEffectiveStatus } from '../lib/localStore.js';
+import React, { useState, useEffect, useMemo } from 'react';
+import { Plus, X, Tag, Check, Calendar, FolderGit2, CircleDot, User, Loader2, Users, FileText } from 'lucide-react';
+import { Modal, ModalHeader, ModalBody, ModalFooter } from './ui/overlay';
+import { Button, Input, Label, Select, Avatar, PopoverSelect } from './ui/index';
+import HtmlEditor, { normalizeToHtml } from './ui/HtmlEditor';
+import FilterSelect from './ui/FilterSelect';
+import { useToast } from './ui/overlay';
+import useStore from '../store/useStore';
+import { cn, getVisibleGlobalLabels, getDueDateInfo, getDueDateBadgeClass } from '../lib/utils';
+import { TASK_STATUSES, getEffectiveStatus, localStore } from '../lib/localStore';
 
-export default function TaskModal({ open, onClose, editIssue = null }) {
+export interface TaskModalProps {
+  open: boolean;
+  onClose: () => void;
+  editIssue?: any;
+}
+
+export default function TaskModal({ open, onClose, editIssue = null }: TaskModalProps) {
   const {
-    projects, createTask, updateTask, globalLabels,
+    projects, projectOverrides, filterProjects, createTask, updateTask, moveTask, globalLabels,
     customStatuses, setTaskStatus, fetchMembersForProject,
-    currentUser, addGlobalLabel, appSettings,
+    currentUser, addGlobalLabel, appSettings, boardStatuses,
   } = useStore();
   const toast = useToast();
   const isEditing = !!editIssue;
 
-  const [form, setForm] = useState({
+  const [form, setForm] = useState<{
+    title: string;
+    description: string;
+    project_id: string;
+    due_date: string;
+    status: string;
+    assignee_ids: string[];
+    labels: any[];
+  }>({
     title: '',
     description: '',
     project_id: '',
     due_date: '',
     status: 'open',
-    assignee_id: '',
+    assignee_ids: [],
     labels: [],
   });
 
-  const [members, setMembers] = useState([]);
+  const [members, setMembers] = useState<any[]>([]);
   const [submitting, setSubmitting] = useState(false);
   const [showAddLabel, setShowAddLabel] = useState(false);
   const [newLabelName, setNewLabelName] = useState('');
   const [newLabelColor, setNewLabelColor] = useState('#10b981');
+  const [templates, setTemplates] = useState<any[]>([]);
+
+  // Load description templates
+  useEffect(() => {
+    if (open) {
+      setTemplates(localStore.getTemplates());
+    }
+  }, [open]);
+
+  // Project options for FilterSelect (with search and avatars)
+  const projectOptions = useMemo(() => {
+    return projects
+      .filter((p) => {
+        const ov = projectOverrides?.[String(p.id)];
+        return ov?.enabled !== false;
+      })
+      .map((p) => {
+        const ov = projectOverrides?.[String(p.id)];
+        const displayName = ov?.customName || p.name;
+        const hue = (p.id * 137) % 360;
+        return {
+          value: String(p.id),
+          label: displayName,
+          subtitle: p.path_with_namespace,
+          icon: (
+            <div className="flex items-center shrink-0">
+              {p.avatar_url ? (
+                <img
+                  src={p.avatar_url}
+                  alt=""
+                  className="h-4 w-4 rounded object-cover border border-[var(--border)] mr-1.5"
+                  onError={(e) => { e.currentTarget.style.display = 'none'; }}
+                />
+              ) : (
+                <div
+                  className="h-4 w-4 rounded flex items-center justify-center text-[8px] font-bold text-white mr-1.5 shrink-0"
+                  style={{ background: `hsl(${hue}, 55%, 35%)` }}
+                >
+                  {(displayName || 'P').charAt(0).toUpperCase()}
+                </div>
+              )}
+            </div>
+          ),
+        };
+      });
+  }, [projects, projectOverrides]);
 
   // Initialize form state
   useEffect(() => {
@@ -39,34 +100,43 @@ export default function TaskModal({ open, onClose, editIssue = null }) {
       setShowAddLabel(false);
       if (isEditing) {
         const effStatus = getEffectiveStatus(editIssue, customStatuses);
-        const currentAssigneeId = editIssue.assignees?.[0]?.id
-          ? String(editIssue.assignees[0].id)
-          : (editIssue.assignee?.id ? String(editIssue.assignee.id) : '');
+        const currentAssigneeIds = (editIssue.assignees || (editIssue.assignee ? [editIssue.assignee] : []))
+          .map((a: any) => String(a.id));
 
         setForm({
           title: editIssue.title || '',
-          description: editIssue.description || '',
+          description: normalizeToHtml(editIssue.description || ''),
           project_id: String(editIssue.project_id || ''),
           due_date: editIssue.due_date || '',
           status: effStatus,
-          assignee_id: currentAssigneeId,
+          assignee_ids: currentAssigneeIds,
           labels: getVisibleGlobalLabels(editIssue.labels, globalLabels),
         });
       } else {
-        const defaultProj = projects[0] ? String(projects[0].id) : '';
-        const defaultAssignee = appSettings.autoAssignOnCreate && currentUser ? String(currentUser.id) : '';
+        // Autoselect the first project from active filters if present, or first enabled project
+        let defaultProj = '';
+        if (filterProjects && filterProjects.length > 0) {
+          const matched = projects.find((p) => String(p.id) === String(filterProjects[0]));
+          if (matched) defaultProj = String(matched.id);
+        }
+        if (!defaultProj) {
+          const firstEnabled = projects.find((p) => projectOverrides?.[String(p.id)]?.enabled !== false);
+          defaultProj = firstEnabled ? String(firstEnabled.id) : (projects[0] ? String(projects[0].id) : '');
+        }
+
+        const defaultAssignees = appSettings.autoAssignOnCreate && currentUser ? [String(currentUser.id)] : [];
         setForm({
           title: '',
           description: '',
           project_id: defaultProj,
           due_date: '',
           status: 'open',
-          assignee_id: defaultAssignee,
+          assignee_ids: defaultAssignees,
           labels: [],
         });
       }
     }
-  }, [open, editIssue, globalLabels, isEditing, customStatuses, projects, currentUser, appSettings]);
+  }, [open, editIssue, globalLabels, isEditing, customStatuses, projects, currentUser, appSettings, filterProjects, projectOverrides]);
 
   // Load members when project changes
   useEffect(() => {
@@ -79,32 +149,57 @@ export default function TaskModal({ open, onClose, editIssue = null }) {
     }
   }, [form.project_id, fetchMembersForProject]);
 
-  const setField = (field, value) => setForm((p) => ({ ...p, [field]: value }));
+  const setField = (field: string, value: any) => setForm((p) => ({ ...p, [field]: value }));
 
-  const setPresetDueDate = (days) => {
+  const setPresetDueDate = (days: number) => {
     const d = new Date();
     d.setDate(d.getDate() + days);
     setField('due_date', d.toISOString().split('T')[0]);
   };
 
-  const toggleLabel = (label) => {
-    const isSelected = form.labels.some((l) => l.name.toLowerCase() === label.name.toLowerCase());
-    if (isSelected) {
-      setField('labels', form.labels.filter((l) => l.name.toLowerCase() !== label.name.toLowerCase()));
-    } else {
-      setField('labels', [...form.labels, label]);
+  const toggleLabel = (label: any) => {
+    setForm((p) => {
+      const exists = p.labels.some((l) => (l?.name || '').toLowerCase() === (label?.name || '').toLowerCase());
+      return {
+        ...p,
+        labels: exists
+          ? p.labels.filter((l) => (l?.name || '').toLowerCase() !== (label?.name || '').toLowerCase())
+          : [...p.labels, label],
+      };
+    });
+  };
+
+  const toggleAssignee = (memberId: string) => {
+    setForm((p) => {
+      const exists = p.assignee_ids.includes(memberId);
+      return {
+        ...p,
+        assignee_ids: exists
+          ? p.assignee_ids.filter((id) => id !== memberId)
+          : [...p.assignee_ids, memberId],
+      };
+    });
+  };
+
+  const handleApplyTemplate = (tplId: string) => {
+    const tpl = templates.find((t) => t.id === tplId);
+    if (!tpl) return;
+    if (form.description.trim() && !window.confirm('Apply template? This will replace your current description.')) {
+      return;
     }
+    setField('description', normalizeToHtml(tpl.content));
+    toast({ type: 'info', message: `Loaded template "${tpl.name}"` });
   };
 
   const handleCreateAndSelectLabel = async () => {
     if (!newLabelName.trim()) return;
     try {
       const created = addGlobalLabel({ name: newLabelName.trim(), color: newLabelColor });
-      setField('labels', [...form.labels, created]);
+      toggleLabel(created);
       setNewLabelName('');
       setShowAddLabel(false);
       toast({ type: 'success', message: `✓ Tag "${created.name}" created` });
-    } catch (err) {
+    } catch (err: any) {
       toast({ type: 'error', message: err.message });
     }
   };
@@ -113,21 +208,27 @@ export default function TaskModal({ open, onClose, editIssue = null }) {
     if (!form.title.trim() || (!isEditing && !form.project_id)) return;
     setSubmitting(true);
 
-    const payload = {
+    const payload: any = {
       title: form.title.trim(),
       description: form.description.trim(),
       due_date: form.due_date || null,
       labels: form.labels.map((l) => l.name).join(','),
-      assignee_ids: form.assignee_id ? [Number(form.assignee_id)] : [],
+      assignee_ids: form.assignee_ids.length > 0 ? form.assignee_ids.map(Number) : [0],
     };
 
     try {
       if (isEditing) {
-        await updateTask(editIssue.project_id, editIssue.iid, payload);
-        if (form.status) {
-          await setTaskStatus(editIssue.project_id, editIssue.iid, form.status);
+        // If user changed the project, move task to the new project!
+        if (String(editIssue.project_id) !== String(form.project_id)) {
+          await moveTask(editIssue.project_id, editIssue.iid, form.project_id, payload);
+          toast({ type: 'success', message: '✓ Task moved to new project' });
+        } else {
+          await updateTask(editIssue.project_id, editIssue.iid, payload);
+          if (form.status) {
+            await setTaskStatus(editIssue.project_id, editIssue.iid, form.status);
+          }
+          toast({ type: 'success', message: '✓ Task updated successfully' });
         }
-        toast({ type: 'success', message: '✓ Task updated successfully' });
       } else {
         const created = await createTask(form.project_id, payload);
         if (created?.iid && form.status && form.status !== 'open') {
@@ -136,7 +237,7 @@ export default function TaskModal({ open, onClose, editIssue = null }) {
         toast({ type: 'success', message: '✓ Task created successfully' });
       }
       onClose();
-    } catch (err) {
+    } catch (err: any) {
       toast({ type: 'error', message: err.message });
     } finally {
       setSubmitting(false);
@@ -147,11 +248,17 @@ export default function TaskModal({ open, onClose, editIssue = null }) {
   const selectedProj = projects.find((p) => String(p.id) === String(form.project_id));
   const dueInfo = form.due_date ? getDueDateInfo(form.due_date) : null;
 
+  const availableStatuses = useMemo(() => {
+    const list = boardStatuses?.length ? boardStatuses : TASK_STATUSES;
+    const enabled = list.filter((s) => s.enabled || s.id === form.status);
+    return enabled.length > 0 ? enabled : list;
+  }, [boardStatuses, form.status]);
+
   return (
     <Modal open={open} onClose={onClose} size="2xl">
       <ModalHeader onClose={onClose}>
         <div className="flex items-center gap-3">
-          <div className="h-9 w-9 rounded-xl bg-[var(--accent-muted)] border border-[var(--accent)]/30 flex items-center justify-center text-[var(--accent)] shadow-sm">
+          <div className="h-9 w-9 rounded-xl bg-[var(--accent-muted)] border border-[var(--accent)]/30 flex items-center justify-center text-[var(--accent)] shadow-xs">
             <Plus className="h-5 w-5" />
           </div>
           <div>
@@ -188,86 +295,139 @@ export default function TaskModal({ open, onClose, editIssue = null }) {
 
         {/* Task Description (Rich Markdown Editor with GitLab Photo Upload) */}
         <div>
-          <Label htmlFor="task-desc" className="font-semibold text-xs text-[var(--text-1)]">
-            Description
-          </Label>
-          <MarkdownEditor
+          <div className="flex items-center justify-between mb-1.5">
+            <Label htmlFor="task-desc" className="font-semibold text-xs text-[var(--text-1)] !mb-0">
+              Description
+            </Label>
+            {templates.length > 0 && (
+              <div className="flex items-center gap-1.5">
+                <PopoverSelect
+                  value=""
+                  onChange={(val) => {
+                    const tplId = typeof val === 'object' && val?.target?.value !== undefined ? val.target.value : val;
+                    if (tplId) handleApplyTemplate(String(tplId));
+                  }}
+                  placeholder="Insert template..."
+                  className="h-6 text-[10px] px-2 py-0.5 rounded-lg border border-[var(--border)] bg-[var(--surface-2)] text-[var(--text-2)] hover:text-[var(--text-1)] w-auto min-w-[140px]"
+                  popoverWidth={200}
+                  icon={FileText}
+                  options={templates.map((tpl) => ({
+                    value: tpl.id,
+                    label: tpl.name,
+                    icon: <FileText className="h-3 w-3 text-[var(--accent)]" />,
+                  }))}
+                />
+              </div>
+            )}
+          </div>
+          <HtmlEditor
             value={form.description}
             onChange={(val) => setField('description', val)}
             projectId={form.project_id}
-            placeholder="Add description, checklist, or acceptance criteria (Markdown supported). You can paste or drop photos here to upload directly to GitLab..."
-            rows={5}
+            placeholder="Type your task description, notes, or HTML. Format with headings, tables, bold, lists, and paste or drop photos to upload directly to GitLab..."
+            minHeight="170px"
           />
         </div>
 
-        {/* Selectable Attributes Grid (All single-selectable) */}
+        {/* Selectable Attributes Grid */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4 p-4 rounded-2xl border border-[var(--border)] bg-[var(--surface-2)]/40">
-          {/* 1. Project Selector */}
+          {/* 1. Project Selector (Searchable with namespaces and icons) */}
           <div>
-            <Label htmlFor="task-project" className="flex items-center gap-1.5 font-semibold text-xs text-[var(--text-1)]">
+            <Label htmlFor="task-project" className="flex items-center gap-1.5 font-semibold text-xs text-[var(--text-1)] mb-1.5">
               <FolderGit2 className="h-3.5 w-3.5 text-[var(--accent)]" /> Project <span className="text-red-500">*</span>
             </Label>
             <div className="relative">
-              <Select
+              <FilterSelect
                 id="task-project"
                 value={form.project_id}
-                onChange={(e) => setField('project_id', e.target.value)}
-                disabled={isEditing}
-                className="h-9 text-xs pl-3"
-              >
-                {projects.map((p) => (
-                  <option key={p.id} value={String(p.id)}>
-                    {p.name}
-                  </option>
-                ))}
-              </Select>
+                onChange={(val) => setField('project_id', String(val))}
+                options={projectOptions}
+                placeholder="Choose project..."
+                label="Project"
+                icon={FolderGit2}
+                searchable
+                searchPlaceholder="Search projects..."
+                width={320}
+              />
             </div>
+            {isEditing && String(form.project_id) !== String(editIssue.project_id) && (
+              <p className="text-[10px] text-[var(--accent)] mt-1">
+                Note: Changing project will move this task to the selected project.
+              </p>
+            )}
           </div>
 
           {/* 2. Status Selector */}
           <div>
-            <Label htmlFor="task-status" className="flex items-center gap-1.5 font-semibold text-xs text-[var(--text-1)]">
+            <Label htmlFor="task-status" className="flex items-center gap-1.5 font-semibold text-xs text-[var(--text-1)] mb-1.5">
               <CircleDot className="h-3.5 w-3.5 text-[var(--accent)]" /> Status
             </Label>
-            <Select
+            <PopoverSelect
               id="task-status"
               value={form.status}
-              onChange={(e) => setField('status', e.target.value)}
-              className="h-9 text-xs pl-3"
-            >
-              {TASK_STATUSES.map((s) => (
-                <option key={s.id} value={s.id}>
-                  {s.label}
-                </option>
-              ))}
-            </Select>
+              onChange={(val) => {
+                const statusVal = typeof val === 'object' && val?.target?.value !== undefined ? val.target.value : val;
+                setField('status', String(statusVal));
+              }}
+              options={availableStatuses.map((s) => ({
+                value: s.id,
+                label: s.label,
+                color: s.color,
+              }))}
+              className="h-9 text-xs"
+            />
           </div>
 
-          {/* 3. Assignee Selector */}
+          {/* 3. Assignees Selector (Multi-Selectable with Search) */}
           <div>
-            <Label htmlFor="task-assignee" className="flex items-center gap-1.5 font-semibold text-xs text-[var(--text-1)]">
-              <User className="h-3.5 w-3.5 text-[var(--accent)]" /> Assignee
-            </Label>
-            <Select
-              id="task-assignee"
-              value={form.assignee_id}
-              onChange={(e) => setField('assignee_id', e.target.value)}
-              className="h-9 text-xs pl-3"
-            >
-              <option value="">Unassigned</option>
+            <div className="flex items-center justify-between mb-1.5">
+              <Label htmlFor="task-assignee" className="flex items-center gap-1.5 font-semibold text-xs text-[var(--text-1)] !mb-0">
+                <Users className="h-3.5 w-3.5 text-[var(--accent)]" /> Assignees
+                {form.assignee_ids.length > 0 && (
+                  <span className="text-[10px] text-[var(--accent)] font-mono">({form.assignee_ids.length})</span>
+                )}
+              </Label>
               {currentUser && (
-                <option value={String(currentUser.id)}>
-                  {currentUser.name || currentUser.username} (You)
-                </option>
+                <button
+                  type="button"
+                  onClick={() => toggleAssignee(String(currentUser.id))}
+                  className={cn(
+                    'text-[10px] px-1.5 py-0.5 rounded transition-colors font-medium cursor-pointer',
+                    form.assignee_ids.includes(String(currentUser.id))
+                      ? 'bg-[var(--accent)] text-white'
+                      : 'bg-[var(--surface-3)] text-[var(--text-3)] hover:text-[var(--text-1)]'
+                  )}
+                >
+                  {form.assignee_ids.includes(String(currentUser.id)) ? 'Assigned to You' : '+ Assign to Me'}
+                </button>
               )}
-              {members
-                .filter((m) => !currentUser || m.id !== currentUser.id)
-                .map((m) => (
-                  <option key={m.id} value={String(m.id)}>
-                    {m.name || m.username}
-                  </option>
-                ))}
-            </Select>
+            </div>
+            <FilterSelect
+              id="task-assignees"
+              value={form.assignee_ids}
+              onChange={(val) => setField('assignee_ids', Array.isArray(val) ? val.map(String) : [])}
+              options={members.map((m) => ({
+                value: String(m.id),
+                label: m.name || m.username,
+                subtitle: m.username ? `@${m.username}` : undefined,
+                icon: (
+                  <Avatar
+                    src={m.avatar_url}
+                    name={m.name || m.username}
+                    size="sm"
+                    className="mr-1.5"
+                  />
+                ),
+              }))}
+              placeholder="Assign members..."
+              label="Assignees"
+              icon={Users}
+              allLabel="None"
+              searchable
+              searchPlaceholder="Search members..."
+              isMulti
+              width={280}
+            />
           </div>
 
           {/* 4. Due Date Selector (in one line with presets) */}
@@ -315,7 +475,7 @@ export default function TaskModal({ open, onClose, editIssue = null }) {
                 type="date"
                 value={form.due_date}
                 onChange={(e) => setField('due_date', e.target.value)}
-                onClick={(e) => { try { e.target.showPicker?.(); } catch {} }}
+                onClick={(e: any) => { try { e.target.showPicker?.(); } catch {} }}
                 className="[color-scheme:dark] cursor-pointer h-9 text-xs"
               />
               {dueInfo && (
@@ -366,7 +526,7 @@ export default function TaskModal({ open, onClose, editIssue = null }) {
                   className={cn(
                     'inline-flex items-center gap-2 px-3 py-1.5 rounded-xl text-xs font-medium border transition-all cursor-pointer select-none',
                     isSelected
-                      ? 'shadow-sm font-semibold'
+                      ? 'shadow-xs font-semibold'
                       : 'border-[var(--border)] bg-[var(--surface)] text-[var(--text-2)] hover:border-[var(--border-hover)] hover:text-[var(--text-1)]'
                   )}
                   style={
@@ -380,7 +540,7 @@ export default function TaskModal({ open, onClose, editIssue = null }) {
                   }
                 >
                   <span
-                    className="h-2.5 w-2.5 rounded-full shrink-0 shadow-sm"
+                    className="h-2.5 w-2.5 rounded-full shrink-0 shadow-xs"
                     style={{ backgroundColor: l.color }}
                   />
                   <span>{l.name}</span>
@@ -423,7 +583,7 @@ export default function TaskModal({ open, onClose, editIssue = null }) {
                   type="button"
                   onClick={handleCreateAndSelectLabel}
                   disabled={!newLabelName.trim()}
-                  className="h-7 px-2.5 rounded-lg bg-[var(--accent)] text-white text-xs font-medium hover:opacity-90 disabled:opacity-40 cursor-pointer shadow-sm"
+                  className="h-7 px-2.5 rounded-lg bg-[var(--accent)] text-white text-xs font-medium hover:opacity-90 disabled:opacity-40 cursor-pointer shadow-xs"
                 >
                   Add
                 </button>

@@ -5,8 +5,9 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "vite build",
-    "build:ext": "vite build && node -e \"const fs=require('fs'); fs.copyFileSync('manifest.json','dist/manifest.json'); console.log('manifest.json copied to dist/');\"",
+    "build": "tsc -b && vite build",
+    "build:ext": "tsc -b && vite build && node -e \"const fs=require('fs'); fs.copyFileSync('manifest.json','dist/manifest.json'); console.log('manifest.json copied to dist/');\"",
+    "typecheck": "tsc --noEmit",
     "lint": "oxlint",
     "preview": "vite preview"
   },
@@ -31,15 +32,18 @@
     "marked": "^18.0.14",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
+    "sonner": "^2.0.8",
     "tailwind-merge": "^3.7.0",
     "tailwindcss": "^4.3.3",
     "zustand": "^5.0.15"
   },
   "devDependencies": {
+    "@types/node": "^26.6.4",
     "@types/react": "^19.2.18",
     "@types/react-dom": "^19.2.7",
     "@vitejs/plugin-react": "^6.1.1",
     "oxlint": "^1.81.0",
+    "typescript": "^7.0.2",
     "vite": "^8.3.0"
   }
 }
